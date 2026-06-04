@@ -4,25 +4,320 @@ import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { Button } from '@/components/ui/Button'
+import { Input } from '@/components/ui/Input'
 import { Card } from '@/components/ui/Card'
+
+/* ── Tipos ─────────────────────────────────────────────── */
+
+interface Loja {
+  id: string
+  dono_id: string
+  nome: string
+  slug: string
+  whatsapp: string | null
+  endereco: string | null
+  taxa_entrega: number
+  pedido_minimo: number | null
+  ativo: boolean
+}
+
+interface FormValues {
+  nome: string
+  slug: string
+  whatsapp: string
+  endereco: string
+  taxa_entrega: string
+  pedido_minimo: string
+}
+
+type Feedback = { tipo: 'sucesso' | 'erro'; texto: string }
+
+/* ── Helpers ────────────────────────────────────────────── */
+
+const FORM_VAZIO: FormValues = {
+  nome: '',
+  slug: '',
+  whatsapp: '',
+  endereco: '',
+  taxa_entrega: '0',
+  pedido_minimo: '',
+}
+
+function gerarSlug(nome: string): string {
+  return nome
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '') // remove acentos
+    .replace(/[^a-z0-9\s]/g, '')     // remove caracteres especiais
+    .trim()
+    .replace(/\s+/g, '-')            // espaços → hífens
+}
+
+function lojaParaForm(l: Loja): FormValues {
+  return {
+    nome: l.nome,
+    slug: l.slug,
+    whatsapp: l.whatsapp ?? '',
+    endereco: l.endereco ?? '',
+    taxa_entrega: String(l.taxa_entrega),
+    pedido_minimo: l.pedido_minimo != null ? String(l.pedido_minimo) : '',
+  }
+}
+
+function formatarReal(valor: number): string {
+  return valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+}
+
+/* ── Formulário (criar e editar) ────────────────────────── */
+
+interface LojaFormProps {
+  userId: string
+  loja: Loja | null   // null = criar, Loja = editar
+  onSalvo: (loja: Loja) => void
+  onCancelar?: () => void
+}
+
+function LojaForm({ userId, loja, onSalvo, onCancelar }: LojaFormProps) {
+  const [form, setForm] = useState<FormValues>(
+    loja ? lojaParaForm(loja) : FORM_VAZIO
+  )
+  // Se estamos editando, o slug já existe: não sobrescrever ao digitar nome
+  const [slugManual, setSlugManual] = useState(loja !== null)
+  const [salvando, setSalvando] = useState(false)
+  const [feedback, setFeedback] = useState<Feedback | null>(null)
+
+  function handleNome(valor: string) {
+    setForm(prev => ({
+      ...prev,
+      nome: valor,
+      ...(slugManual ? {} : { slug: gerarSlug(valor) }),
+    }))
+  }
+
+  function handleSlug(valor: string) {
+    setSlugManual(true)
+    setForm(prev => ({ ...prev, slug: valor }))
+  }
+
+  function handleCampo(campo: Exclude<keyof FormValues, 'nome' | 'slug'>) {
+    return (e: React.ChangeEvent<HTMLInputElement>) =>
+      setForm(prev => ({ ...prev, [campo]: e.target.value }))
+  }
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    setSalvando(true)
+    setFeedback(null)
+
+    const payload = {
+      nome: form.nome.trim(),
+      slug: form.slug.trim(),
+      whatsapp: form.whatsapp.trim() || null,
+      endereco: form.endereco.trim() || null,
+      taxa_entrega: parseFloat(form.taxa_entrega) || 0,
+      pedido_minimo: form.pedido_minimo ? parseFloat(form.pedido_minimo) : null,
+    }
+
+    const { error } = loja
+      ? await supabase.from('lojas').update(payload).eq('id', loja.id)
+      : await supabase.from('lojas').insert({ ...payload, dono_id: userId, ativo: true })
+
+    if (error) {
+      setFeedback({
+        tipo: 'erro',
+        texto:
+          error.code === '23505'
+            ? 'Esse endereço de loja já está em uso, escolha outro.'
+            : error.message,
+      })
+      setSalvando(false)
+      return
+    }
+
+    // Rebuscar para pegar os dados completos (evita chamar .select() após .insert())
+    const { data } = await supabase
+      .from('lojas')
+      .select('*')
+      .eq('dono_id', userId)
+      .maybeSingle()
+
+    setSalvando(false)
+
+    if (data) {
+      onSalvo(data as Loja)
+    } else {
+      setFeedback({ tipo: 'erro', texto: 'Erro ao carregar os dados salvos.' })
+    }
+  }
+
+  return (
+    <Card bodyClassName="p-6">
+      <h2 className="text-[18px] font-semibold text-ink mb-5">
+        {loja ? 'Editar loja' : 'Criar minha loja'}
+      </h2>
+
+      <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+        <Input
+          label="Nome da loja"
+          id="nome"
+          value={form.nome}
+          onChange={e => handleNome(e.target.value)}
+          placeholder="Ex.: Pizza do João"
+          required
+        />
+
+        <div className="flex flex-col gap-1.5">
+          <Input
+            label="Endereço da loja (URL)"
+            id="slug"
+            value={form.slug}
+            onChange={e => handleSlug(e.target.value)}
+            placeholder="pizza-do-joao"
+            required
+          />
+          <p className="text-xs text-ink-mute">
+            Gerado automaticamente a partir do nome. Só letras, números e hífens.
+          </p>
+        </div>
+
+        <Input
+          label="WhatsApp"
+          id="whatsapp"
+          type="tel"
+          value={form.whatsapp}
+          onChange={handleCampo('whatsapp')}
+          placeholder="(11) 99999-9999"
+        />
+
+        <Input
+          label="Endereço"
+          id="endereco"
+          value={form.endereco}
+          onChange={handleCampo('endereco')}
+          placeholder="Rua, número, bairro"
+        />
+
+        <div className="grid grid-cols-2 gap-4">
+          <Input
+            label="Taxa de entrega (R$)"
+            id="taxa_entrega"
+            type="number"
+            min="0"
+            step="0.01"
+            value={form.taxa_entrega}
+            onChange={handleCampo('taxa_entrega')}
+          />
+          <Input
+            label="Pedido mínimo (R$)"
+            id="pedido_minimo"
+            type="number"
+            min="0"
+            step="0.01"
+            value={form.pedido_minimo}
+            onChange={handleCampo('pedido_minimo')}
+            placeholder="Opcional"
+          />
+        </div>
+
+        {feedback && (
+          <p className={`text-sm ${feedback.tipo === 'sucesso' ? 'text-brand-600' : 'text-danger'}`}>
+            {feedback.texto}
+          </p>
+        )}
+
+        <div className="flex gap-3 mt-1">
+          <Button type="submit" disabled={salvando} className="flex-1">
+            {salvando ? 'Salvando...' : 'Salvar loja'}
+          </Button>
+          {onCancelar && (
+            <Button type="button" variant="secondary" onClick={onCancelar}>
+              Cancelar
+            </Button>
+          )}
+        </div>
+      </form>
+    </Card>
+  )
+}
+
+/* ── Exibição dos dados da loja ─────────────────────────── */
+
+interface LojaInfoProps {
+  loja: Loja
+  onEditar: () => void
+}
+
+function LojaInfo({ loja, onEditar }: LojaInfoProps) {
+  const linhas = [
+    { label: 'WhatsApp',        valor: loja.whatsapp },
+    { label: 'Endereço',        valor: loja.endereco },
+    { label: 'Taxa de entrega', valor: formatarReal(loja.taxa_entrega) },
+    {
+      label: 'Pedido mínimo',
+      valor: loja.pedido_minimo != null ? formatarReal(loja.pedido_minimo) : null,
+    },
+  ].filter((l): l is { label: string; valor: string } => l.valor != null)
+
+  return (
+    <Card bodyClassName="p-6">
+      <div className="flex items-start justify-between mb-4">
+        <div>
+          <h2 className="text-[18px] font-semibold text-ink">{loja.nome}</h2>
+          <p className="text-sm text-ink-mute mt-0.5">/{loja.slug}</p>
+        </div>
+        <Button variant="secondary" onClick={onEditar}>
+          Editar
+        </Button>
+      </div>
+
+      {linhas.length > 0 && (
+        <div className="border-t border-line">
+          {linhas.map(({ label, valor }) => (
+            <div
+              key={label}
+              className="flex justify-between py-3 border-b border-line last:border-0"
+            >
+              <span className="text-sm text-ink-soft">{label}</span>
+              <span className="text-sm font-medium text-ink">{valor}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </Card>
+  )
+}
+
+/* ── Página ─────────────────────────────────────────────── */
 
 export default function Painel() {
   const router = useRouter()
-  const [email, setEmail] = useState<string | null>(null)
+  const [userId, setUserId]   = useState<string | null>(null)
+  const [email, setEmail]     = useState<string | null>(null)
+  // undefined = carregando; null = sem loja; Loja = tem loja
+  const [loja, setLoja]       = useState<Loja | null | undefined>(undefined)
+  const [editando, setEditando] = useState(false)
 
   useEffect(() => {
-    async function verificarSessao() {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession()
+    async function init() {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session) { router.push('/login'); return }
 
-      if (!session) {
-        router.push('/login')
-      } else {
-        setEmail(session.user.email ?? null)
-      }
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) { router.push('/login'); return }
+
+      setEmail(user.email ?? null)
+      setUserId(user.id)
+
+      const { data } = await supabase
+        .from('lojas')
+        .select('*')
+        .eq('dono_id', user.id)
+        .maybeSingle()
+
+      setLoja(data ? (data as Loja) : null)
     }
-    verificarSessao()
+
+    init()
   }, [router])
 
   async function handleSair() {
@@ -30,22 +325,51 @@ export default function Painel() {
     router.push('/login')
   }
 
-  if (!email) return null
+  function handleSalvo(novaLoja: Loja) {
+    setLoja(novaLoja)
+    setEditando(false)
+  }
+
+  // Aguardando sessão e dados da loja
+  if (loja === undefined || !userId) return null
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-bg px-4">
-      <Card bodyClassName="p-8 text-center">
-        <p className="text-base text-ink-soft">Bem-vindo de volta</p>
-        <p className="text-[22px] font-bold text-ink mt-1">Olá, {email}</p>
+    <main className="min-h-screen bg-bg px-4 py-10">
+      <div className="max-w-lg mx-auto flex flex-col gap-6">
 
-        <Button
-          variant="secondary"
-          onClick={handleSair}
-          className="mt-6 text-danger border-danger/30 hover:bg-danger/10 w-full"
-        >
-          Sair
-        </Button>
-      </Card>
+        {/* Cabeçalho */}
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-sm text-ink-soft">Painel do dono</p>
+            <p className="text-base font-semibold text-ink mt-0.5">{email}</p>
+          </div>
+          <Button
+            variant="secondary"
+            onClick={handleSair}
+            className="text-danger border-danger/30 hover:bg-danger/10"
+          >
+            Sair
+          </Button>
+        </div>
+
+        {/* Seção da loja */}
+        {loja === null ? (
+          // Sem loja: exibe formulário de criação
+          <LojaForm userId={userId} loja={null} onSalvo={handleSalvo} />
+        ) : editando ? (
+          // Editando loja existente
+          <LojaForm
+            userId={userId}
+            loja={loja}
+            onSalvo={handleSalvo}
+            onCancelar={() => setEditando(false)}
+          />
+        ) : (
+          // Exibindo dados da loja
+          <LojaInfo loja={loja} onEditar={() => setEditando(true)} />
+        )}
+
+      </div>
     </main>
   )
 }
