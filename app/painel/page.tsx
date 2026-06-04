@@ -372,25 +372,40 @@ export default function Painel() {
 
         {/* Atalhos de gestão (só quando há loja e não está editando) */}
         {loja && !editando && (
-          <div className="grid grid-cols-2 gap-3">
-            {[
-              { href: '/painel/categorias', label: 'Categorias' },
-              { href: '/painel/produtos',   label: 'Produtos'   },
-            ].map(({ href, label }) => (
-              <Link
-                key={href}
-                href={href}
-                className={[
-                  'inline-flex items-center justify-center',
-                  'min-h-[48px] px-4 rounded-md font-semibold text-sm',
-                  'bg-surface text-brand-700 border border-line',
-                  'hover:bg-brand-50 transition-all duration-150 ease-out',
-                  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500',
-                ].join(' ')}
-              >
-                {label}
-              </Link>
-            ))}
+          <div className="flex flex-col gap-3">
+            <Link
+              href="/painel/pedidos"
+              className={[
+                'inline-flex items-center justify-center',
+                'min-h-[48px] px-4 rounded-md font-semibold text-sm',
+                'bg-brand-500 text-surface',
+                'hover:bg-brand-600 active:scale-[0.98] transition-all duration-150 ease-out shadow-sm',
+                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500',
+              ].join(' ')}
+            >
+              Ver pedidos
+            </Link>
+
+            <div className="grid grid-cols-2 gap-3">
+              {[
+                { href: '/painel/categorias', label: 'Categorias' },
+                { href: '/painel/produtos',   label: 'Produtos'   },
+              ].map(({ href, label }) => (
+                <Link
+                  key={href}
+                  href={href}
+                  className={[
+                    'inline-flex items-center justify-center',
+                    'min-h-[48px] px-4 rounded-md font-semibold text-sm',
+                    'bg-surface text-brand-700 border border-line',
+                    'hover:bg-brand-50 transition-all duration-150 ease-out',
+                    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500',
+                  ].join(' ')}
+                >
+                  {label}
+                </Link>
+              ))}
+            </div>
           </div>
         )}
 
