@@ -22,6 +22,7 @@ interface Loja {
   taxa_entrega: number
   pedido_minimo: number | null
   ativo: boolean
+  logo_url: string | null
 }
 
 interface Categoria {
@@ -962,7 +963,16 @@ export default function PaginaLoja() {
       {/* ── Barra superior fixa ──────────────────── */}
       <header className="fixed top-0 inset-x-0 z-40 bg-surface border-b border-line">
         <div className="max-w-2xl mx-auto px-4 h-14 flex items-center justify-between gap-4">
-          <p className="text-base font-semibold text-ink truncate">{loja.nome}</p>
+          <div className="flex items-center gap-2.5 min-w-0">
+            {loja.logo_url && (
+              <img
+                src={loja.logo_url}
+                alt={loja.nome}
+                className="w-8 h-8 rounded-full object-cover shrink-0 border border-line"
+              />
+            )}
+            <p className="text-base font-semibold text-ink truncate">{loja.nome}</p>
+          </div>
 
           <button
             onClick={() => totalItens > 0 && setDrawerAberto(true)}

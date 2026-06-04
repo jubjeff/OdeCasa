@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
+import { ImageIcon } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
@@ -20,6 +21,7 @@ interface Loja {
   taxa_entrega: number
   pedido_minimo: number | null
   ativo: boolean
+  logo_url: string | null
 }
 
 interface FormValues {
@@ -246,9 +248,41 @@ function LojaForm({ userId, loja, onSalvo, onCancelar }: LojaFormProps) {
 interface LojaInfoProps {
   loja: Loja
   onEditar: () => void
+  onLogoAtualizada: (url: string | null) => void
 }
 
-function LojaInfo({ loja, onEditar }: LojaInfoProps) {
+function LojaInfo({ loja, onEditar, onLogoAtualizada }: LojaInfoProps) {
+  const [enviandoLogo, setEnviandoLogo] = useState(false)
+
+  async function handleLogoUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setEnviandoLogo(true)
+
+    const { error: errUpload } = await supabase.storage
+      .from('lojas')
+      .upload(`${loja.id}/logo`, file, { upsert: true, contentType: file.type })
+
+    if (!errUpload) {
+      const { data: { publicUrl } } = supabase.storage
+        .from('lojas')
+        .getPublicUrl(`${loja.id}/logo`)
+      /* cache-buster para forçar refresh imediato */
+      const url = `${publicUrl}?t=${Date.now()}`
+      await supabase.from('lojas').update({ logo_url: url }).eq('id', loja.id)
+      onLogoAtualizada(url)
+    }
+
+    setEnviandoLogo(false)
+    e.target.value = ''
+  }
+
+  async function handleRemoverLogo() {
+    await supabase.storage.from('lojas').remove([`${loja.id}/logo`])
+    await supabase.from('lojas').update({ logo_url: null }).eq('id', loja.id)
+    onLogoAtualizada(null)
+  }
+
   const linhas = [
     { label: 'WhatsApp',        valor: loja.whatsapp },
     { label: 'Endereço',        valor: loja.endereco },
@@ -261,6 +295,43 @@ function LojaInfo({ loja, onEditar }: LojaInfoProps) {
 
   return (
     <Card bodyClassName="p-6">
+      {/* Logo da loja */}
+      <div className="flex items-center gap-4 mb-5">
+        <div className="w-16 h-16 rounded-full overflow-hidden bg-brand-50 border border-line shrink-0">
+          {loja.logo_url ? (
+            <img src={loja.logo_url} alt={loja.nome} className="w-full h-full object-cover" />
+          ) : (
+            <div className="w-full h-full flex items-center justify-center">
+              <ImageIcon size={20} strokeWidth={1.25} className="text-brand-200" />
+            </div>
+          )}
+        </div>
+
+        <div className="flex flex-col gap-1">
+          <label className={[
+            'cursor-pointer text-sm font-semibold text-brand-600 hover:text-brand-700 transition-colors',
+            enviandoLogo ? 'opacity-50 pointer-events-none' : '',
+          ].join(' ')}>
+            {enviandoLogo ? 'Enviando…' : loja.logo_url ? 'Alterar logo' : 'Adicionar logo'}
+            <input
+              type="file"
+              accept="image/*"
+              className="sr-only"
+              onChange={handleLogoUpload}
+              disabled={enviandoLogo}
+            />
+          </label>
+          {loja.logo_url && !enviandoLogo && (
+            <button
+              onClick={handleRemoverLogo}
+              className="text-xs text-danger hover:text-danger/80 text-left transition-colors"
+            >
+              Remover
+            </button>
+          )}
+        </div>
+      </div>
+
       <div className="flex items-start justify-between mb-4">
         <div>
           <h2 className="text-[18px] font-semibold text-ink">{loja.nome}</h2>
@@ -367,7 +438,11 @@ export default function Painel() {
           />
         ) : (
           // Exibindo dados da loja
-          <LojaInfo loja={loja} onEditar={() => setEditando(true)} />
+          <LojaInfo
+            loja={loja}
+            onEditar={() => setEditando(true)}
+            onLogoAtualizada={url => setLoja(prev => prev == null ? prev : { ...prev, logo_url: url })}
+          />
         )}
 
         {/* Atalhos de gestão (só quando há loja e não está editando) */}

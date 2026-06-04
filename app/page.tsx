@@ -1,65 +1,125 @@
-import Image from "next/image";
+import Link from 'next/link'
+import { createClient } from '@supabase/supabase-js'
+import { MapPin, Truck, ArrowRight, Sprout } from 'lucide-react'
 
-export default function Home() {
+/* ── Busca server-side (sem login, chave anon) ───── */
+
+interface Loja {
+  nome: string
+  slug: string
+  endereco: string | null
+  taxa_entrega: number
+  logo_url: string | null
+}
+
+async function getLoja(): Promise<Loja | null> {
+  try {
+    const client = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+      { auth: { persistSession: false, autoRefreshToken: false } },
+    )
+    const { data } = await client
+      .from('lojas')
+      .select('nome, slug, endereco, taxa_entrega, logo_url')
+      .eq('ativo', true)
+      .limit(1)
+      .maybeSingle()
+    return (data as Loja) ?? null
+  } catch {
+    return null
+  }
+}
+
+function formatarReal(valor: number): string {
+  return valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+}
+
+/* ── Página ──────────────────────────────────────── */
+
+export default async function Home() {
+  const loja = await getLoja()
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
+    <main className="min-h-screen bg-brand-900 flex flex-col font-sans">
+
+      {/* Marca */}
+      <div className="px-6 pt-8 shrink-0">
+        <p className="text-brand-400 text-sm font-semibold tracking-widest">
+          OdeCasa
+        </p>
+      </div>
+
+      {/* Herói */}
+      <div className="flex-1 flex flex-col items-center justify-center px-6 py-16 text-center">
+
+        {loja ? (
+          <>
+            {/* Logo */}
+            {loja.logo_url && (
+              <div className="w-24 h-24 rounded-full overflow-hidden border-2 border-brand-600 mb-6 shadow-lg">
+                <img src={loja.logo_url} alt={loja.nome} className="w-full h-full object-cover" />
+              </div>
+            )}
+
+            {/* Nome da loja */}
+            <h1 className="text-[34px] leading-tight font-bold text-surface sm:text-5xl max-w-sm">
+              {loja.nome}
+            </h1>
+
+            {/* Informações */}
+            <div className="mt-5 flex flex-col items-center gap-2.5">
+              {loja.endereco && (
+                <p className="flex items-center gap-2 text-brand-300 text-sm">
+                  <MapPin size={14} strokeWidth={1.75} className="shrink-0" />
+                  {loja.endereco}
+                </p>
+              )}
+              <p className="flex items-center gap-2 text-brand-300 text-sm">
+                <Truck size={14} strokeWidth={1.75} className="shrink-0" />
+                {loja.taxa_entrega === 0
+                  ? 'Entrega grátis'
+                  : `Entrega ${formatarReal(loja.taxa_entrega)}`}
+              </p>
+            </div>
+
+            {/* CTA */}
+            <Link
+              href={`/loja/${loja.slug}`}
+              className={[
+                'mt-10 inline-flex items-center justify-center gap-2',
+                'min-h-[52px] px-8 rounded-xl',
+                'bg-surface text-brand-900 font-bold text-base',
+                'hover:bg-brand-50 active:scale-[0.98]',
+                'transition-all duration-150 shadow-lg',
+                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-300',
+              ].join(' ')}
             >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
-    </div>
-  );
+              Ver cardápio
+              <ArrowRight size={18} strokeWidth={2.25} />
+            </Link>
+          </>
+        ) : (
+          /* Estado "Em breve" */
+          <>
+            <div className="w-16 h-16 rounded-full bg-brand-700/40 flex items-center justify-center mb-6">
+              <Sprout size={30} strokeWidth={1.5} className="text-brand-300" />
+            </div>
+
+            <h1 className="text-[34px] font-bold text-surface">Em breve</h1>
+
+            <p className="mt-4 text-brand-300 text-base max-w-[260px] leading-relaxed">
+              Nossa loja está sendo preparada com muito carinho. Volte em breve!
+            </p>
+          </>
+        )}
+      </div>
+
+      {/* Rodapé */}
+      <div className="px-6 pb-8 text-center shrink-0">
+        <p className="text-brand-700 text-xs">Delivery fresco, com cuidado</p>
+      </div>
+
+    </main>
+  )
 }
