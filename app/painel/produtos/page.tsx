@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
+import { ImageIcon } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
@@ -44,13 +45,13 @@ interface FormValues {
 /* ── Constantes ──────────────────────────────────── */
 
 const UNIDADES = [
-  { value: 'un',      label: 'Unidade' },
-  { value: 'kg',      label: 'Quilo' },
-  { value: 'g',       label: 'Grama' },
-  { value: 'maco',    label: 'Maço' },
-  { value: 'duzia',   label: 'Dúzia' },
-  { value: 'l',       label: 'Litro' },
-  { value: 'bandeja', label: 'Bandeja' },
+  { value: 'un',      label: 'Unidade'  },
+  { value: 'kg',      label: 'Quilo'    },
+  { value: 'g',       label: 'Grama'    },
+  { value: 'maco',    label: 'Maço'     },
+  { value: 'duzia',   label: 'Dúzia'    },
+  { value: 'l',       label: 'Litro'    },
+  { value: 'bandeja', label: 'Bandeja'  },
 ]
 
 const FORM_VAZIO: FormValues = {
@@ -91,7 +92,7 @@ function produtoParaForm(p: Produto): FormValues {
   }
 }
 
-/* ── Classe reutilizável para <select> ───────────── */
+/* ── Classe base para <select> ───────────────────── */
 
 const SELECT_CLASS = [
   'h-12 w-full rounded-md border border-line bg-surface px-4',
@@ -105,17 +106,29 @@ const SELECT_CLASS = [
 interface ProdutoFormProps {
   loja: Loja
   categorias: Categoria[]
-  produto: Produto | null   // null = criar; Produto = editar
+  produto: Produto | null
   onSalvo: () => void
   onCancelar: () => void
 }
 
 function ProdutoForm({ loja, categorias, produto, onSalvo, onCancelar }: ProdutoFormProps) {
-  const [form, setForm] = useState<FormValues>(
-    produto ? produtoParaForm(produto) : FORM_VAZIO
-  )
-  const [salvando, setSalvando] = useState(false)
-  const [erro, setErro] = useState<string | null>(null)
+  const [form, setForm]             = useState<FormValues>(produto ? produtoParaForm(produto) : FORM_VAZIO)
+  const [salvando, setSalvando]     = useState(false)
+  const [erro, setErro]             = useState<string | null>(null)
+
+  /* ── Estado de foto ─────────────────────────────── */
+  const [arquivoFoto, setArquivoFoto] = useState<File | null>(null)
+  // previewUrl: blob (arquivo recém-selecionado) ou URL do Storage (produto existente)
+  const [previewUrl, setPreviewUrl]   = useState<string | null>(produto?.foto_url ?? null)
+  const [erroUpload, setErroUpload]   = useState<string | null>(null)
+
+  function handleFotoChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setArquivoFoto(file)
+    setPreviewUrl(URL.createObjectURL(file))
+    setErroUpload(null)
+  }
 
   function set<K extends keyof FormValues>(campo: K, valor: FormValues[K]) {
     setForm(prev => ({ ...prev, [campo]: valor }))
@@ -125,17 +138,41 @@ function ProdutoForm({ loja, categorias, produto, onSalvo, onCancelar }: Produto
     e.preventDefault()
     setSalvando(true)
     setErro(null)
+    setErroUpload(null)
 
+    /* ── Upload da foto (se houver arquivo novo) ── */
+    let fotoUrl: string | null = produto?.foto_url ?? null
+    let uploadFalhou = false
+
+    if (arquivoFoto) {
+      const ext  = arquivoFoto.name.split('.').pop()?.toLowerCase() ?? 'jpg'
+      const path = `${loja.id}/${crypto.randomUUID()}.${ext}`
+
+      const { error: erroStorage } = await supabase.storage
+        .from('produtos')
+        .upload(path, arquivoFoto)
+
+      if (erroStorage) {
+        setErroUpload(`Não foi possível enviar a imagem: ${erroStorage.message}`)
+        uploadFalhou = true
+        // fotoUrl mantém o valor anterior — demais campos ainda serão salvos
+      } else {
+        const { data } = supabase.storage.from('produtos').getPublicUrl(path)
+        fotoUrl = data.publicUrl
+      }
+    }
+
+    /* ── Salvar produto ─────────────────────────── */
     const payload = {
-      nome: form.nome.trim(),
-      categoria_id: form.categoria_id || null,
-      preco: parsePrecoBR(form.preco),
-      unidade: form.unidade,
-      descricao: form.descricao.trim() || null,
-      controla_estoque: form.controla_estoque,
-      estoque: form.controla_estoque ? (parseFloat(form.estoque) || 0) : null,
-      disponivel: form.disponivel,
-      foto_url: null as null,
+      nome:              form.nome.trim(),
+      categoria_id:      form.categoria_id || null,
+      preco:             parsePrecoBR(form.preco),
+      unidade:           form.unidade,
+      descricao:         form.descricao.trim() || null,
+      controla_estoque:  form.controla_estoque,
+      estoque:           form.controla_estoque ? (parseFloat(form.estoque) || 0) : null,
+      disponivel:        form.disponivel,
+      foto_url:          fotoUrl,
     }
 
     const { error } = produto
@@ -146,6 +183,9 @@ function ProdutoForm({ loja, categorias, produto, onSalvo, onCancelar }: Produto
 
     if (error) {
       setErro(error.message)
+    } else if (uploadFalhou) {
+      // Produto salvo sem a nova foto — mantém o formulário aberto
+      // para que o usuário veja a mensagem de erro do upload
     } else {
       onSalvo()
     }
@@ -158,6 +198,66 @@ function ProdutoForm({ loja, categorias, produto, onSalvo, onCancelar }: Produto
       </h2>
 
       <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+
+        {/* ── Campo de foto ──────────────────────── */}
+        <div className="flex flex-col gap-1.5">
+          <span className="text-sm font-medium text-ink">
+            Foto{' '}
+            <span className="text-ink-mute font-normal">(opcional)</span>
+          </span>
+
+          {previewUrl ? (
+            /* Prévia da imagem */
+            <div className="flex flex-col gap-2">
+              <div className="aspect-[4/3] overflow-hidden rounded-md bg-brand-50">
+                <img
+                  src={previewUrl}
+                  alt="Prévia"
+                  className="w-full h-full object-cover"
+                />
+              </div>
+              <label
+                htmlFor="prod-foto"
+                className={[
+                  'inline-flex items-center justify-center gap-2 cursor-pointer',
+                  'min-h-[48px] px-5 rounded-md font-semibold text-sm',
+                  'bg-surface text-brand-700 border border-line',
+                  'hover:bg-brand-50 transition-all duration-150 ease-out',
+                ].join(' ')}
+              >
+                Trocar foto
+              </label>
+            </div>
+          ) : (
+            /* Área de seleção (sem imagem) */
+            <label
+              htmlFor="prod-foto"
+              className={[
+                'flex flex-col items-center justify-center gap-2 cursor-pointer',
+                'aspect-[4/3] rounded-md border-2 border-dashed border-line',
+                'text-ink-mute hover:border-brand-300 hover:bg-brand-50',
+                'transition-colors duration-150',
+              ].join(' ')}
+            >
+              <ImageIcon size={28} strokeWidth={1.5} />
+              <span className="text-sm">Clique para adicionar foto</span>
+              <span className="text-xs">JPG, PNG, WEBP · máx. 5 MB</span>
+            </label>
+          )}
+
+          {/* Input file oculto */}
+          <input
+            id="prod-foto"
+            type="file"
+            accept="image/*"
+            className="sr-only"
+            onChange={handleFotoChange}
+          />
+
+          {erroUpload && (
+            <p className="text-sm text-danger">{erroUpload}</p>
+          )}
+        </div>
 
         {/* Nome */}
         <Input
@@ -313,38 +413,56 @@ interface ProdutoCardProps {
 
 function ProdutoCard({ produto, categoriaNome, onEditar, onExcluir }: ProdutoCardProps) {
   return (
-    <Card bodyClassName="p-4">
-      {/* Linha 1: nome + badge */}
-      <div className="flex items-start justify-between gap-3">
-        <p className="text-base font-semibold text-ink leading-snug flex-1">
-          {produto.nome}
-        </p>
-        <StatusBadge status={produto.disponivel ? 'disponivel' : 'indisponivel'} />
+    <Card bodyClassName="p-0">
+      {/* Foto 4:3 — placeholder discreto quando não há imagem */}
+      <div className="aspect-[4/3] overflow-hidden bg-brand-50">
+        {produto.foto_url ? (
+          <img
+            src={produto.foto_url}
+            alt={produto.nome}
+            className="w-full h-full object-cover"
+          />
+        ) : (
+          <div className="w-full h-full flex items-center justify-center">
+            <ImageIcon size={36} strokeWidth={1.25} className="text-brand-200" />
+          </div>
+        )}
       </div>
 
-      {/* Linha 2: preço */}
-      <p className="text-[18px] font-bold text-brand-700 mt-1">
-        {formatarReal(produto.preco)}
-        <span className="text-sm font-normal text-ink-mute">
-          {' '}/ {labelUnidade(produto.unidade)}
-        </span>
-      </p>
+      {/* Conteúdo */}
+      <div className="p-4">
+        {/* Nome + badge */}
+        <div className="flex items-start justify-between gap-3">
+          <p className="text-base font-semibold text-ink leading-snug flex-1">
+            {produto.nome}
+          </p>
+          <StatusBadge status={produto.disponivel ? 'disponivel' : 'indisponivel'} />
+        </div>
 
-      {/* Linha 3: categoria (opcional) */}
-      {categoriaNome && (
-        <p className="text-xs text-ink-mute mt-1">{categoriaNome}</p>
-      )}
+        {/* Preço */}
+        <p className="text-[18px] font-bold text-brand-700 mt-1">
+          {formatarReal(produto.preco)}
+          <span className="text-sm font-normal text-ink-mute">
+            {' '}/ {labelUnidade(produto.unidade)}
+          </span>
+        </p>
 
-      {/* Ações */}
-      <div className="flex gap-2 mt-3 pt-3 border-t border-line justify-end">
-        <Button variant="ghost" onClick={onEditar}>Editar</Button>
-        <Button
-          variant="ghost"
-          className="text-danger hover:bg-danger/10"
-          onClick={onExcluir}
-        >
-          Excluir
-        </Button>
+        {/* Categoria */}
+        {categoriaNome && (
+          <p className="text-xs text-ink-mute mt-1">{categoriaNome}</p>
+        )}
+
+        {/* Ações */}
+        <div className="flex gap-2 mt-3 pt-3 border-t border-line justify-end">
+          <Button variant="ghost" onClick={onEditar}>Editar</Button>
+          <Button
+            variant="ghost"
+            className="text-danger hover:bg-danger/10"
+            onClick={onExcluir}
+          >
+            Excluir
+          </Button>
+        </div>
       </div>
     </Card>
   )
@@ -444,7 +562,6 @@ export default function Produtos() {
 
   if (loja === undefined) return null
 
-  // Sem loja
   if (loja === null) {
     return (
       <main className="flex min-h-screen items-center justify-center bg-bg px-4">
@@ -504,7 +621,7 @@ export default function Produtos() {
               </p>
             </Card>
           ) : (
-            <div className="flex flex-col gap-3">
+            <div className="grid grid-cols-2 gap-3">
               {produtos.map(p => (
                 <ProdutoCard
                   key={p.id}
