@@ -370,20 +370,28 @@ export default function Painel() {
           <LojaInfo loja={loja} onEditar={() => setEditando(true)} />
         )}
 
-        {/* Acesso rápido às categorias (só quando há loja e não está editando) */}
+        {/* Atalhos de gestão (só quando há loja e não está editando) */}
         {loja && !editando && (
-          <Link
-            href="/painel/categorias"
-            className={[
-              'inline-flex items-center justify-center gap-2 w-full',
-              'min-h-[48px] px-5 rounded-md font-semibold text-sm',
-              'bg-surface text-brand-700 border border-line',
-              'hover:bg-brand-50 transition-all duration-150 ease-out',
-              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500',
-            ].join(' ')}
-          >
-            Gerenciar categorias
-          </Link>
+          <div className="grid grid-cols-2 gap-3">
+            {[
+              { href: '/painel/categorias', label: 'Categorias' },
+              { href: '/painel/produtos',   label: 'Produtos'   },
+            ].map(({ href, label }) => (
+              <Link
+                key={href}
+                href={href}
+                className={[
+                  'inline-flex items-center justify-center',
+                  'min-h-[48px] px-4 rounded-md font-semibold text-sm',
+                  'bg-surface text-brand-700 border border-line',
+                  'hover:bg-brand-50 transition-all duration-150 ease-out',
+                  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500',
+                ].join(' ')}
+              >
+                {label}
+              </Link>
+            ))}
+          </div>
         )}
 
       </div>

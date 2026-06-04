@@ -5,12 +5,17 @@ export type OrderStatus =
   | 'entregue'
   | 'cancelado'
 
+export type ProductStatus = 'disponivel' | 'indisponivel'
+
+export type BadgeStatus = OrderStatus | ProductStatus
+
 interface Config {
   label: string
   className: string
 }
 
-const STATUS_CONFIG: Record<OrderStatus, Config> = {
+const STATUS_CONFIG: Record<BadgeStatus, Config> = {
+  /* ── Pedidos ────────────────────────────────── */
   recebido: {
     label: 'Recebido',
     className: 'bg-line text-ink-soft',
@@ -31,10 +36,19 @@ const STATUS_CONFIG: Record<OrderStatus, Config> = {
     label: 'Cancelado',
     className: 'bg-danger/15 text-danger',
   },
+  /* ── Produtos ───────────────────────────────── */
+  disponivel: {
+    label: 'Disponível',
+    className: 'bg-brand-100 text-brand-700',
+  },
+  indisponivel: {
+    label: 'Indisponível',
+    className: 'bg-line text-ink-mute',
+  },
 }
 
 interface StatusBadgeProps {
-  status: OrderStatus
+  status: BadgeStatus
 }
 
 export function StatusBadge({ status }: StatusBadgeProps) {
@@ -43,7 +57,7 @@ export function StatusBadge({ status }: StatusBadgeProps) {
     <span
       className={[
         'inline-flex items-center px-3 py-1',
-        'rounded-full text-sm font-medium',
+        'rounded-full text-sm font-medium whitespace-nowrap',
         className,
       ].join(' ')}
     >
