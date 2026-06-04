@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { Button } from '@/components/ui/Button'
@@ -367,6 +368,22 @@ export default function Painel() {
         ) : (
           // Exibindo dados da loja
           <LojaInfo loja={loja} onEditar={() => setEditando(true)} />
+        )}
+
+        {/* Acesso rápido às categorias (só quando há loja e não está editando) */}
+        {loja && !editando && (
+          <Link
+            href="/painel/categorias"
+            className={[
+              'inline-flex items-center justify-center gap-2 w-full',
+              'min-h-[48px] px-5 rounded-md font-semibold text-sm',
+              'bg-surface text-brand-700 border border-line',
+              'hover:bg-brand-50 transition-all duration-150 ease-out',
+              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500',
+            ].join(' ')}
+          >
+            Gerenciar categorias
+          </Link>
         )}
 
       </div>
