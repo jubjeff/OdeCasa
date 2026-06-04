@@ -1,14 +1,19 @@
 'use client'
 
 import { useState } from 'react'
-import { supabase } from '@/lib/supabase'
 import Link from 'next/link'
+import { supabase } from '@/lib/supabase'
+import { Button } from '@/components/ui/Button'
+import { Input } from '@/components/ui/Input'
+import { Card } from '@/components/ui/Card'
+
+type Mensagem = { tipo: 'sucesso' | 'erro'; texto: string }
 
 export default function Cadastro() {
   const [nome, setNome] = useState('')
   const [email, setEmail] = useState('')
   const [senha, setSenha] = useState('')
-  const [mensagem, setMensagem] = useState<{ tipo: 'sucesso' | 'erro'; texto: string } | null>(null)
+  const [mensagem, setMensagem] = useState<Mensagem | null>(null)
   const [carregando, setCarregando] = useState(false)
 
   async function handleSubmit(e: React.FormEvent) {
@@ -25,64 +30,73 @@ export default function Cadastro() {
     if (error) {
       setMensagem({ tipo: 'erro', texto: error.message })
     } else {
-      setMensagem({ tipo: 'sucesso', texto: 'Cadastro realizado! Verifique seu e-mail para confirmar a conta.' })
+      setMensagem({
+        tipo: 'sucesso',
+        texto: 'Cadastro realizado! Verifique seu e-mail para confirmar a conta.',
+      })
     }
 
     setCarregando(false)
   }
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-gray-50">
-      <div className="w-full max-w-sm rounded-xl bg-white p-8 shadow">
-        <h1 className="mb-6 text-2xl font-bold text-gray-800">Criar conta</h1>
+    <main className="flex min-h-screen items-center justify-center bg-bg px-4">
+      <div className="w-full max-w-sm">
+        <Card bodyClassName="p-8">
+          <h1 className="text-[22px] font-bold text-ink mb-6">Criar conta</h1>
 
-        <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-          <input
-            type="text"
-            placeholder="Nome"
-            value={nome}
-            onChange={(e) => setNome(e.target.value)}
-            required
-            className="rounded-lg border border-gray-300 px-4 py-2 text-sm outline-none focus:border-indigo-500"
-          />
-          <input
-            type="email"
-            placeholder="E-mail"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            required
-            className="rounded-lg border border-gray-300 px-4 py-2 text-sm outline-none focus:border-indigo-500"
-          />
-          <input
-            type="password"
-            placeholder="Senha"
-            value={senha}
-            onChange={(e) => setSenha(e.target.value)}
-            required
-            className="rounded-lg border border-gray-300 px-4 py-2 text-sm outline-none focus:border-indigo-500"
-          />
+          <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+            <Input
+              label="Nome"
+              id="nome"
+              type="text"
+              placeholder="Seu nome"
+              value={nome}
+              onChange={(e) => setNome(e.target.value)}
+              required
+            />
+            <Input
+              label="E-mail"
+              id="email"
+              type="email"
+              placeholder="seu@email.com"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              required
+            />
+            <Input
+              label="Senha"
+              id="senha"
+              type="password"
+              placeholder="Mínimo 6 caracteres"
+              value={senha}
+              onChange={(e) => setSenha(e.target.value)}
+              required
+            />
 
-          {mensagem && (
-            <p className={`text-sm ${mensagem.tipo === 'sucesso' ? 'text-green-600' : 'text-red-500'}`}>
-              {mensagem.texto}
-            </p>
-          )}
+            {mensagem && (
+              <p
+                className={[
+                  'text-sm',
+                  mensagem.tipo === 'sucesso' ? 'text-brand-600' : 'text-danger',
+                ].join(' ')}
+              >
+                {mensagem.texto}
+              </p>
+            )}
 
-          <button
-            type="submit"
-            disabled={carregando}
-            className="rounded-lg bg-indigo-600 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
-          >
-            {carregando ? 'Cadastrando...' : 'Cadastrar'}
-          </button>
-        </form>
+            <Button type="submit" disabled={carregando} className="mt-1 w-full">
+              {carregando ? 'Cadastrando...' : 'Criar conta'}
+            </Button>
+          </form>
 
-        <p className="mt-4 text-center text-sm text-gray-500">
-          Já tem conta?{' '}
-          <Link href="/login" className="text-indigo-600 hover:underline">
-            Entrar
-          </Link>
-        </p>
+          <p className="mt-5 text-center text-sm text-ink-soft">
+            Já tem conta?{' '}
+            <Link href="/login" className="text-brand-500 font-medium hover:underline">
+              Entrar
+            </Link>
+          </p>
+        </Card>
       </div>
     </main>
   )

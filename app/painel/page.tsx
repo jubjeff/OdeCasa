@@ -3,6 +3,8 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
+import { Button } from '@/components/ui/Button'
+import { Card } from '@/components/ui/Card'
 
 export default function Painel() {
   const router = useRouter()
@@ -10,7 +12,10 @@ export default function Painel() {
 
   useEffect(() => {
     async function verificarSessao() {
-      const { data: { session } } = await supabase.auth.getSession()
+      const {
+        data: { session },
+      } = await supabase.auth.getSession()
+
       if (!session) {
         router.push('/login')
       } else {
@@ -28,16 +33,19 @@ export default function Painel() {
   if (!email) return null
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-gray-50">
-      <div className="rounded-xl bg-white p-8 shadow text-center">
-        <p className="text-lg font-medium text-gray-800">Olá, {email}</p>
-        <button
+    <main className="flex min-h-screen items-center justify-center bg-bg px-4">
+      <Card bodyClassName="p-8 text-center">
+        <p className="text-base text-ink-soft">Bem-vindo de volta</p>
+        <p className="text-[22px] font-bold text-ink mt-1">Olá, {email}</p>
+
+        <Button
+          variant="secondary"
           onClick={handleSair}
-          className="mt-4 rounded-lg bg-red-500 px-6 py-2 text-sm font-medium text-white hover:bg-red-600"
+          className="mt-6 text-danger border-danger/30 hover:bg-danger/10 w-full"
         >
           Sair
-        </button>
-      </div>
+        </Button>
+      </Card>
     </main>
   )
 }

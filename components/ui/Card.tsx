@@ -1,11 +1,14 @@
 import { HTMLAttributes } from 'react'
 
 interface CardProps extends HTMLAttributes<HTMLDivElement> {
+  /** URL da imagem de produto (proporção 4:3). Omita para usar o Card como container genérico. */
   image?: string
   imageAlt?: string
   name?: string
   price?: string
   unit?: string
+  /** Classe CSS aplicada à área de conteúdo. Padrão: "p-4". */
+  bodyClassName?: string
 }
 
 export function Card({
@@ -16,6 +19,7 @@ export function Card({
   unit,
   children,
   className = '',
+  bodyClassName = 'p-4',
   ...props
 }: CardProps) {
   return (
@@ -28,23 +32,19 @@ export function Card({
       ].join(' ')}
       {...props}
     >
-      {/* Imagem 4:3 */}
-      <div className="aspect-[4/3] overflow-hidden bg-brand-50">
-        {image ? (
+      {/* Imagem 4:3 — só renderiza quando a prop image for fornecida */}
+      {image !== undefined && (
+        <div className="aspect-[4/3] overflow-hidden bg-brand-50">
           <img
             src={image}
             alt={imageAlt}
             className="w-full h-full object-cover"
           />
-        ) : (
-          <div className="w-full h-full flex items-center justify-center text-ink-mute text-sm">
-            Sem imagem
-          </div>
-        )}
-      </div>
+        </div>
+      )}
 
       {/* Conteúdo */}
-      <div className="p-4">
+      <div className={bodyClassName}>
         {name && (
           <p className="text-base font-semibold text-ink leading-snug">{name}</p>
         )}
