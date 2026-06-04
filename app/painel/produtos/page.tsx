@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Card } from '@/components/ui/Card'
 import { StatusBadge } from '@/components/ui/StatusBadge'
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 
 /* ── Tipos ───────────────────────────────────────── */
 
@@ -479,6 +480,7 @@ export default function Produtos() {
 
   const [formAberto, setFormAberto]           = useState(false)
   const [produtoEditando, setProdutoEditando] = useState<Produto | null>(null)
+  const [dialogo, setDialogo]                 = useState<{ mensagem: string; onConfirmar: () => void } | null>(null)
 
   /* ── Inicialização ──────────────────────────── */
 
@@ -552,10 +554,15 @@ export default function Produtos() {
     if (loja) await buscarProdutos(loja.id)
   }
 
-  async function excluir(produto: Produto) {
-    if (!window.confirm(`Excluir o produto "${produto.nome}"?`)) return
-    await supabase.from('produtos').delete().eq('id', produto.id)
-    if (loja) await buscarProdutos(loja.id)
+  function excluir(produto: Produto) {
+    setDialogo({
+      mensagem: `Excluir o produto "${produto.nome}"?`,
+      onConfirmar: async () => {
+        setDialogo(null)
+        await supabase.from('produtos').delete().eq('id', produto.id)
+        if (loja) await buscarProdutos(loja.id)
+      },
+    })
   }
 
   /* ── Render ─────────────────────────────────── */
@@ -583,6 +590,7 @@ export default function Produtos() {
   const categoriaMap = Object.fromEntries(categorias.map(c => [c.id, c.nome]))
 
   return (
+    <>
     <main className="min-h-screen bg-bg px-4 py-10">
       <div className="max-w-lg mx-auto flex flex-col gap-6">
 
@@ -637,5 +645,15 @@ export default function Produtos() {
 
       </div>
     </main>
+
+    {/* Diálogo de confirmação de exclusão */}
+    {dialogo && (
+      <ConfirmDialog
+        mensagem={dialogo.mensagem}
+        onConfirmar={dialogo.onConfirmar}
+        onCancelar={() => setDialogo(null)}
+      />
+    )}
+  </>
   )
 }

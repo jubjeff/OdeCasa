@@ -7,6 +7,7 @@ import { supabase } from '@/lib/supabase'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Card } from '@/components/ui/Card'
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 
 /* ── Tipos ─────────────────────────────────────────── */
 
@@ -34,6 +35,9 @@ export default function Categorias() {
   // Formulário de adição
   const [novaCategoria, setNovaCategoria] = useState('')
   const [adicionando, setAdicionando]     = useState(false)
+
+  // Diálogo de confirmação
+  const [dialogo, setDialogo] = useState<{ mensagem: string; onConfirmar: () => void } | null>(null)
 
   // Edição inline
   const [editandoId, setEditandoId]       = useState<string | null>(null)
@@ -127,12 +131,16 @@ export default function Categorias() {
 
   /* ── Excluir ────────────────────────────────────── */
 
-  async function excluir(cat: Categoria) {
+  function excluir(cat: Categoria) {
     if (!loja) return
-    if (!window.confirm(`Excluir a categoria "${cat.nome}"?`)) return
-
-    await supabase.from('categorias').delete().eq('id', cat.id)
-    await buscarCategorias(loja.id)
+    setDialogo({
+      mensagem: `Excluir a categoria "${cat.nome}"?`,
+      onConfirmar: async () => {
+        setDialogo(null)
+        await supabase.from('categorias').delete().eq('id', cat.id)
+        await buscarCategorias(loja.id)
+      },
+    })
   }
 
   /* ── Render ─────────────────────────────────────── */
@@ -160,6 +168,7 @@ export default function Categorias() {
   }
 
   return (
+    <>
     <main className="min-h-screen bg-bg px-4 py-10">
       <div className="max-w-lg mx-auto flex flex-col gap-6">
 
@@ -269,5 +278,14 @@ export default function Categorias() {
 
       </div>
     </main>
+
+    {dialogo && (
+      <ConfirmDialog
+        mensagem={dialogo.mensagem}
+        onConfirmar={dialogo.onConfirmar}
+        onCancelar={() => setDialogo(null)}
+      />
+    )}
+    </>
   )
 }
