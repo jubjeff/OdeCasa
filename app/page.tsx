@@ -61,26 +61,34 @@ export default async function Home() {
   return (
     <main className="min-h-screen bg-bg flex flex-col font-sans">
 
-      <div className="flex-1 flex flex-col w-full max-w-md mx-auto px-6 py-10">
-
-        {/* Logo da marca */}
+      {/* Assinatura da plataforma — discreta no topo */}
+      <header className="px-6 pt-6 flex justify-center shrink-0">
         <Image
           src="/odecasa-logo.png"
           alt="ÔdeCasa Delivery"
-          width={168}
-          height={168}
-          className="mx-auto block shrink-0"
+          width={72}
+          height={72}
+          className="block opacity-90"
           priority
         />
+      </header>
+
+      <div className="flex-1 flex flex-col w-full max-w-md mx-auto px-6">
 
         {loja ? (
-          <div className="flex-1 flex flex-col items-center justify-center text-center py-8">
+          <div className="flex-1 flex flex-col items-center justify-center text-center py-6">
 
-            {/* Logo da loja (se houver) */}
-            {loja.logo_url && (
-              <div className="w-20 h-20 rounded-full overflow-hidden border border-line shadow-sm mb-5 bg-surface">
+            {/* Logo da loja — destaque do herói */}
+            {loja.logo_url ? (
+              <div className="w-28 h-28 rounded-full overflow-hidden border border-line shadow-md mb-6 bg-surface">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src={loja.logo_url} alt={loja.nome} className="w-full h-full object-cover" />
+              </div>
+            ) : (
+              <div className="w-28 h-28 rounded-full mb-6 bg-brand-50 border border-line shadow-md flex items-center justify-center">
+                <span className="text-[44px] font-bold text-brand-500 leading-none">
+                  {loja.nome.trim().charAt(0).toUpperCase()}
+                </span>
               </div>
             )}
 
