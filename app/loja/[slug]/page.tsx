@@ -1,10 +1,11 @@
 'use client'
 
 import { useEffect, useReducer, useState } from 'react'
+import Link from 'next/link'
 import { useParams } from 'next/navigation'
 import {
   ShoppingCart, MapPin, Truck, ImageIcon, ShoppingBag, SearchX,
-  Minus, Plus, X, AlertCircle, ArrowLeft, CheckCircle2, Copy, Check,
+  Minus, Plus, X, AlertCircle, ArrowLeft, CheckCircle2, Copy, Check, User,
 } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { Card } from '@/components/ui/Card'
@@ -54,6 +55,23 @@ interface ItemCarrinho {
   quantidade: number
 }
 
+interface Cliente {
+  id: string
+  nome: string
+  email: string
+}
+
+interface Endereco {
+  id: string
+  cliente_id: string
+  apelido: string | null
+  endereco: string
+  complemento: string | null
+  referencia: string | null
+  padrao: boolean
+  criado_em: string
+}
+
 type AcaoCarrinho =
   | { type: 'ADICIONAR'; produto: Produto }
   | { type: 'INCREMENTAR'; id: string; unidade: string }
@@ -98,6 +116,17 @@ function aplicarMascaraTelefone(valor: string): string {
   if (d.length <= 6) return `(${d.slice(0, 2)}) ${d.slice(2)}`
   if (d.length <= 10) return `(${d.slice(0, 2)}) ${d.slice(2, 6)}-${d.slice(6)}`
   return `(${d.slice(0, 2)}) ${d.slice(2, 7)}-${d.slice(7)}`
+}
+
+function composeEndereco(e: Endereco): string {
+  let texto = e.endereco.trim()
+  if (e.complemento?.trim()) texto += `, ${e.complemento.trim()}`
+  if (e.referencia?.trim()) texto += ` (ref: ${e.referencia.trim()})`
+  return texto
+}
+
+function rotuloEndereco(e: Endereco): string {
+  return e.apelido?.trim() || e.endereco.trim()
 }
 
 function incrementoPor(unidade: string): number {
@@ -466,25 +495,38 @@ const OPCOES_PAGAMENTO: { value: FormaPagamento; label: string }[] = [
 interface TelaCheckoutProps {
   carrinho: ItemCarrinho[]
   loja: Loja
+  cliente: Cliente | null
+  enderecos: Endereco[]
   onVoltar: () => void
   onPedidoFeito: (pedido: PedidoConfirmado) => void
+  onEnderecoSalvo: () => void
 }
 
-function TelaCheckout({ carrinho, loja, onVoltar, onPedidoFeito }: TelaCheckoutProps) {
+function TelaCheckout({
+  carrinho, loja, cliente, enderecos, onVoltar, onPedidoFeito, onEnderecoSalvo,
+}: TelaCheckoutProps) {
   const subtotal = carrinho.reduce((acc, i) => acc + i.preco * i.quantidade, 0)
   const taxa = loja.taxa_entrega
   const total = subtotal + taxa
   const minimo = loja.pedido_minimo ?? 0
   const faltaMinimo = minimo > 0 && subtotal < minimo ? minimo - subtotal : 0
 
+  const temEnderecosSalvos = cliente !== null && enderecos.length > 0
+  const enderecoPadrao = enderecos.find(e => e.padrao) ?? enderecos[0]
+
   const [form, setForm] = useState<FormCheckout>({
-    nome: '',
+    nome: cliente?.nome ?? '',
     telefone: '',
     endereco: '',
     observacoes: '',
     forma_pagamento: 'pix',
     troco_para: '',
   })
+  // id do endereço salvo escolhido; null = digitar um novo endereço
+  const [enderecoSelId, setEnderecoSelId] = useState<string | null>(
+    temEnderecosSalvos ? enderecoPadrao.id : null
+  )
+  const [salvarEndereco, setSalvarEndereco] = useState(false)
   const [erros, setErros] = useState<Partial<Record<keyof FormCheckout | 'geral', string>>>({})
   const [enviando, setEnviando] = useState(false)
   const [copiado, setCopiado] = useState(false)
@@ -497,11 +539,20 @@ function TelaCheckout({ carrinho, loja, onVoltar, onPedidoFeito }: TelaCheckoutP
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
 
+    // Endereço escolhido: salvo (logado) ou digitado
+    const usandoSalvo = cliente !== null && enderecoSelId !== null
+    const enderecoSalvo = usandoSalvo
+      ? enderecos.find(e => e.id === enderecoSelId)
+      : undefined
+    const enderecoEntrega = enderecoSalvo
+      ? composeEndereco(enderecoSalvo)
+      : form.endereco.trim()
+
     const novosErros: typeof erros = {}
     if (!form.nome.trim()) novosErros.nome = 'Informe seu nome'
     if (!form.telefone.trim()) novosErros.telefone = 'Informe seu WhatsApp ou telefone'
     else if (form.telefone.replace(/\D/g, '').length < 10) novosErros.telefone = 'Número incompleto'
-    if (!form.endereco.trim()) novosErros.endereco = 'Informe o endereço de entrega'
+    if (!enderecoEntrega) novosErros.endereco = 'Informe o endereço de entrega'
 
     if (form.forma_pagamento === 'dinheiro' && form.troco_para.trim()) {
       const troco = parseFloat(form.troco_para.replace(',', '.'))
@@ -525,10 +576,10 @@ function TelaCheckout({ carrinho, loja, onVoltar, onPedidoFeito }: TelaCheckoutP
       const { error: errPedido } = await supabase.from('pedidos').insert({
         id: pedidoId,
         loja_id: loja.id,
-        cliente_id: null,
+        cliente_id: cliente?.id ?? null,
         nome_cliente: form.nome.trim(),
         telefone_cliente: form.telefone.trim(),
-        endereco_entrega: form.endereco.trim(),
+        endereco_entrega: enderecoEntrega,
         observacoes: form.observacoes.trim() || null,
         forma_pagamento: form.forma_pagamento,
         troco_para: trocoPara,
@@ -553,6 +604,16 @@ function TelaCheckout({ carrinho, loja, onVoltar, onPedidoFeito }: TelaCheckoutP
       )
 
       if (errItens) throw errItens
+
+      // Cliente logado optou por salvar o endereço novo digitado
+      if (cliente && !usandoSalvo && salvarEndereco && form.endereco.trim()) {
+        await supabase.from('enderecos').insert({
+          cliente_id: cliente.id,
+          endereco: form.endereco.trim(),
+          padrao: enderecos.length === 0,
+        })
+        onEnderecoSalvo()
+      }
 
       onPedidoFeito({
         id: pedidoId,
@@ -675,17 +736,81 @@ function TelaCheckout({ carrinho, loja, onVoltar, onPedidoFeito }: TelaCheckoutP
             <div className="bg-surface rounded-xl px-4 py-4 shadow-sm space-y-4">
               <h2 className="text-[15px] font-semibold text-ink">Entrega</h2>
 
-              <div>
-                <Input
-                  id="endereco"
-                  label="Endereço completo"
-                  placeholder="Rua, número, bairro, complemento"
-                  value={form.endereco}
-                  onChange={e => set('endereco', e.target.value)}
-                  autoComplete="street-address"
-                />
-                {erros.endereco && <p className="text-xs text-danger mt-1">{erros.endereco}</p>}
-              </div>
+              {/* Cliente logado com endereços salvos: escolher um ou digitar novo */}
+              {temEnderecosSalvos && (
+                <div className="space-y-2">
+                  {enderecos.map(end => (
+                    <button
+                      key={end.id}
+                      type="button"
+                      onClick={() => setEnderecoSelId(end.id)}
+                      className={[
+                        'w-full text-left rounded-lg border px-3 py-2.5 transition-colors duration-150',
+                        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500',
+                        enderecoSelId === end.id
+                          ? 'bg-brand-50 border-brand-500'
+                          : 'bg-surface border-line hover:bg-brand-50',
+                      ].join(' ')}
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-medium text-ink">{rotuloEndereco(end)}</span>
+                        {end.padrao && (
+                          <span className="text-[10px] font-medium text-brand-700 bg-brand-100 rounded-full px-1.5 py-0.5">
+                            Padrão
+                          </span>
+                        )}
+                      </div>
+                      {end.apelido && (
+                        <p className="text-xs text-ink-soft mt-0.5 leading-snug">{end.endereco}</p>
+                      )}
+                    </button>
+                  ))}
+
+                  <button
+                    type="button"
+                    onClick={() => setEnderecoSelId(null)}
+                    className={[
+                      'w-full text-left rounded-lg border px-3 py-2.5 text-sm font-medium transition-colors duration-150',
+                      'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500',
+                      enderecoSelId === null
+                        ? 'bg-brand-50 border-brand-500 text-brand-700'
+                        : 'bg-surface border-line text-ink-soft hover:bg-brand-50',
+                    ].join(' ')}
+                  >
+                    + Usar um novo endereço
+                  </button>
+                </div>
+              )}
+
+              {/* Campo de endereço novo: convidado, logado sem endereços, ou logado escolhendo "novo" */}
+              {(!temEnderecosSalvos || enderecoSelId === null) && (
+                <div className="space-y-3">
+                  <div>
+                    <Input
+                      id="endereco"
+                      label="Endereço completo"
+                      placeholder="Rua, número, bairro, complemento"
+                      value={form.endereco}
+                      onChange={e => set('endereco', e.target.value)}
+                      autoComplete="street-address"
+                    />
+                    {erros.endereco && <p className="text-xs text-danger mt-1">{erros.endereco}</p>}
+                  </div>
+
+                  {/* Salvar endereço só faz sentido para cliente logado */}
+                  {cliente && (
+                    <label className="flex items-center gap-2 cursor-pointer select-none">
+                      <input
+                        type="checkbox"
+                        checked={salvarEndereco}
+                        onChange={e => setSalvarEndereco(e.target.checked)}
+                        className="w-4 h-4 rounded border-line text-brand-500 focus:ring-brand-500 focus:ring-2"
+                      />
+                      <span className="text-sm text-ink-soft">Salvar este endereço na minha conta</span>
+                    </label>
+                  )}
+                </div>
+              )}
 
               <div className="flex flex-col gap-1.5">
                 <label htmlFor="observacoes" className="text-sm font-medium text-ink leading-none">
@@ -930,6 +1055,53 @@ export default function PaginaLoja() {
   const [drawerAberto, setDrawerAberto] = useState(false)
   const [etapa, setEtapa]           = useState<Etapa>('loja')
   const [pedidoConfirmado, setPedidoConfirmado] = useState<PedidoConfirmado | null>(null)
+  const [cliente, setCliente]       = useState<Cliente | null>(null)
+  const [enderecos, setEnderecos]   = useState<Endereco[]>([])
+
+  // Sessão do cliente + endereços salvos (mantém o convidado funcionando)
+  useEffect(() => {
+    let ativo = true
+
+    async function carregarCliente() {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!ativo) return
+
+      if (!user) {
+        setCliente(null)
+        setEnderecos([])
+        return
+      }
+
+      setCliente({
+        id: user.id,
+        nome: (user.user_metadata?.nome as string) ?? '',
+        email: user.email ?? '',
+      })
+
+      const { data } = await supabase
+        .from('enderecos')
+        .select('*')
+        .eq('cliente_id', user.id)
+        .order('padrao', { ascending: false })
+        .order('criado_em', { ascending: true })
+      if (ativo) setEnderecos((data as Endereco[]) ?? [])
+    }
+
+    carregarCliente()
+    const { data: sub } = supabase.auth.onAuthStateChange(() => carregarCliente())
+    return () => { ativo = false; sub.subscription.unsubscribe() }
+  }, [])
+
+  async function recarregarEnderecos() {
+    if (!cliente) return
+    const { data } = await supabase
+      .from('enderecos')
+      .select('*')
+      .eq('cliente_id', cliente.id)
+      .order('padrao', { ascending: false })
+      .order('criado_em', { ascending: true })
+    setEnderecos((data as Endereco[]) ?? [])
+  }
 
   useEffect(() => {
     async function init() {
@@ -1030,20 +1202,41 @@ export default function PaginaLoja() {
             <p className="text-base font-semibold text-ink truncate">{loja.nome}</p>
           </div>
 
-          <button
-            onClick={() => totalItens > 0 && setDrawerAberto(true)}
-            aria-label={totalItens > 0
-              ? `Ver carrinho (${totalItens} ${totalItens === 1 ? 'item' : 'itens'})`
-              : 'Carrinho vazio'}
-            className="relative shrink-0 w-11 h-11 flex items-center justify-center rounded-full hover:bg-brand-50 transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
-          >
-            <ShoppingCart size={22} strokeWidth={1.75} className="text-ink" />
-            {totalItens > 0 && (
-              <span className="absolute -top-0.5 -right-0.5 w-5 h-5 bg-brand-500 text-surface text-[10px] font-bold rounded-full flex items-center justify-center leading-none">
-                {totalItens > 9 ? '9+' : totalItens}
-              </span>
+          <div className="flex items-center gap-1 shrink-0">
+            {/* Conta do cliente: Entrar quando deslogado, Minha conta quando logado */}
+            {cliente ? (
+              <Link
+                href="/conta"
+                className="inline-flex items-center gap-1.5 h-9 px-3 rounded-full text-sm font-medium text-brand-700 hover:bg-brand-50 transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+              >
+                <User size={16} strokeWidth={1.75} />
+                Minha conta
+              </Link>
+            ) : (
+              <Link
+                href={`/entrar?redirect=${encodeURIComponent(`/loja/${slug}`)}`}
+                className="inline-flex items-center gap-1.5 h-9 px-3 rounded-full text-sm font-medium text-brand-700 hover:bg-brand-50 transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+              >
+                <User size={16} strokeWidth={1.75} />
+                Entrar
+              </Link>
             )}
-          </button>
+
+            <button
+              onClick={() => totalItens > 0 && setDrawerAberto(true)}
+              aria-label={totalItens > 0
+                ? `Ver carrinho (${totalItens} ${totalItens === 1 ? 'item' : 'itens'})`
+                : 'Carrinho vazio'}
+              className="relative w-11 h-11 flex items-center justify-center rounded-full hover:bg-brand-50 transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+            >
+              <ShoppingCart size={22} strokeWidth={1.75} className="text-ink" />
+              {totalItens > 0 && (
+                <span className="absolute -top-0.5 -right-0.5 w-5 h-5 bg-brand-500 text-surface text-[10px] font-bold rounded-full flex items-center justify-center leading-none">
+                  {totalItens > 9 ? '9+' : totalItens}
+                </span>
+              )}
+            </button>
+          </div>
         </div>
       </header>
 
@@ -1146,8 +1339,11 @@ export default function PaginaLoja() {
         <TelaCheckout
           carrinho={carrinho}
           loja={loja}
+          cliente={cliente}
+          enderecos={enderecos}
           onVoltar={() => { setEtapa('loja'); setDrawerAberto(true) }}
           onPedidoFeito={handlePedidoFeito}
+          onEnderecoSalvo={recarregarEnderecos}
         />
       )}
 
