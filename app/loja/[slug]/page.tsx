@@ -90,6 +90,15 @@ function formatarReal(valor: number): string {
   return valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 }
 
+function aplicarMascaraTelefone(valor: string): string {
+  const d = valor.replace(/\D/g, '').slice(0, 11)
+  if (d.length === 0) return ''
+  if (d.length <= 2) return `(${d}`
+  if (d.length <= 6) return `(${d.slice(0, 2)}) ${d.slice(2)}`
+  if (d.length <= 10) return `(${d.slice(0, 2)}) ${d.slice(2, 6)}-${d.slice(6)}`
+  return `(${d.slice(0, 2)}) ${d.slice(2, 7)}-${d.slice(7)}`
+}
+
 function incrementoPor(unidade: string): number {
   return unidade === 'kg' ? 0.5 : 1
 }
@@ -489,6 +498,7 @@ function TelaCheckout({ carrinho, loja, onVoltar, onPedidoFeito }: TelaCheckoutP
     const novosErros: typeof erros = {}
     if (!form.nome.trim()) novosErros.nome = 'Informe seu nome'
     if (!form.telefone.trim()) novosErros.telefone = 'Informe seu WhatsApp ou telefone'
+    else if (form.telefone.replace(/\D/g, '').length < 10) novosErros.telefone = 'Número incompleto'
     if (!form.endereco.trim()) novosErros.endereco = 'Informe o endereço de entrega'
 
     if (form.forma_pagamento === 'dinheiro' && form.troco_para.trim()) {
@@ -652,7 +662,7 @@ function TelaCheckout({ carrinho, loja, onVoltar, onPedidoFeito }: TelaCheckoutP
                   type="tel"
                   inputMode="tel"
                   value={form.telefone}
-                  onChange={e => set('telefone', e.target.value)}
+                  onChange={e => set('telefone', aplicarMascaraTelefone(e.target.value))}
                   autoComplete="tel"
                 />
                 {erros.telefone && <p className="text-xs text-danger mt-1">{erros.telefone}</p>}

@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { ArrowLeft, RefreshCw, ChevronDown, ChevronUp, Phone, MapPin, Volume2, VolumeX } from 'lucide-react'
+import { ArrowLeft, RefreshCw, ChevronDown, ChevronUp, Phone, MapPin, Volume2, VolumeX, MessageCircle } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { Button } from '@/components/ui/Button'
 import { StatusBadge, type OrderStatus } from '@/components/ui/StatusBadge'
@@ -58,6 +58,14 @@ const LABEL_PAGAMENTO: Record<string, string> = {
   cartao_entrega:'Cartão na entrega',
 }
 
+const LABEL_WHATSAPP: Record<OrderStatus, string> = {
+  recebido:    'Avisar: pedido recebido',
+  preparando:  'Avisar: em preparo',
+  saiu_entrega:'Avisar: saiu para entrega',
+  entregue:    'Avisar: entregue',
+  cancelado:   'Avisar: cancelado',
+}
+
 /* ── Helpers ─────────────────────────────────────── */
 
 function formatarReal(valor: number): string {
@@ -77,6 +85,30 @@ function formatarQtd(qtd: number, unidade: string): string {
   return String(qtd)
 }
 
+function normalizarTelefone(tel: string): string {
+  const digits = tel.replace(/\D/g, '')
+  return digits.startsWith('55') ? digits : `55${digits}`
+}
+
+function telefoneValido(tel: string | null | undefined): boolean {
+  if (!tel) return false
+  return tel.replace(/\D/g, '').length >= 8
+}
+
+function montarLinkWhatsApp(pedido: Pedido, nomeLoja: string): string {
+  const numero = normalizarTelefone(pedido.telefone_cliente)
+  const nome = pedido.nome_cliente
+  const loja = nomeLoja || 'nossa loja'
+  const mensagens: Record<OrderStatus, string> = {
+    recebido:    `Olá ${nome}! 🛒 Recebemos seu pedido na ${loja} e já estamos confirmando. Em breve começamos a preparar. Obrigado!`,
+    preparando:  `Oi ${nome}! 👨‍🍳 Seu pedido na ${loja} já está sendo preparado. Logo sai para entrega!`,
+    saiu_entrega:`${nome}, seu pedido da ${loja} saiu para entrega! 🛵 Já está a caminho do seu endereço.`,
+    entregue:    `Pedido entregue! ✅ Esperamos que você goste, ${nome}. Obrigado por comprar na ${loja} 💚`,
+    cancelado:   `Olá ${nome}, seu pedido na ${loja} foi cancelado. Qualquer dúvida, é só falar com a gente.`,
+  }
+  return `https://wa.me/${numero}?text=${encodeURIComponent(mensagens[pedido.status])}`
+}
+
 /* ── Card de pedido ──────────────────────────────── */
 
 interface CardPedidoProps {
@@ -86,6 +118,8 @@ interface CardPedidoProps {
   expandido: boolean
   atualizandoStatus: boolean
   novo: boolean
+  nomeLoja: string
+  whatsappRealcado: boolean
   onToggle: () => void
   onAvancar: (novoStatus: OrderStatus) => void
   onIniciarCancelar: () => void
@@ -93,11 +127,14 @@ interface CardPedidoProps {
 
 function CardPedido({
   pedido, itens, loadingItens, expandido, atualizandoStatus, novo,
+  nomeLoja, whatsappRealcado,
   onToggle, onAvancar, onIniciarCancelar,
 }: CardPedidoProps) {
   const proximo = PROXIMO[pedido.status]
   const podeAvancar = !!proximo
   const podeCancelar = pedido.status !== 'cancelado' && pedido.status !== 'entregue'
+  const temTelefone = telefoneValido(pedido.telefone_cliente)
+  const waLink = temTelefone ? montarLinkWhatsApp(pedido, nomeLoja) : undefined
 
   return (
     <div className={[
@@ -201,6 +238,27 @@ function CardPedido({
             )}
           </div>
 
+          {/* Botão WhatsApp */}
+          <a
+            href={waLink ?? '#'}
+            target={waLink ? '_blank' : undefined}
+            rel="noopener noreferrer"
+            aria-disabled={!temTelefone}
+            tabIndex={temTelefone ? 0 : -1}
+            onClick={!temTelefone ? (e) => e.preventDefault() : undefined}
+            className={[
+              'flex items-center justify-center gap-2 w-full min-h-[40px] rounded-xl text-xs font-semibold px-3 transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500',
+              whatsappRealcado
+                ? 'bg-brand-500 text-white shadow-md ring-2 ring-brand-200'
+                : temTelefone
+                  ? 'bg-surface border border-line text-brand-700 hover:bg-brand-50'
+                  : 'bg-line/60 text-ink-mute cursor-not-allowed opacity-60 pointer-events-none',
+            ].join(' ')}
+          >
+            <MessageCircle size={15} strokeWidth={1.75} />
+            {LABEL_WHATSAPP[pedido.status]}
+          </a>
+
           {/* Botões de ação */}
           {(podeAvancar || podeCancelar) && (
             <div className="flex gap-2 pt-1">
@@ -243,6 +301,8 @@ interface KanbanColunaProps {
   loadingItens: Record<string, boolean>
   atualizandoStatus: string | null
   novosIds: Set<string>
+  nomeLoja: string
+  whatsappRealcado: Set<string>
   onToggle: (id: string) => void
   onAvancar: (id: string, status: OrderStatus) => void
   onIniciarCancelar: (id: string) => void
@@ -251,6 +311,7 @@ interface KanbanColunaProps {
 function KanbanColuna({
   titulo, corDot, pedidos,
   expandido, itensPorPedido, loadingItens, atualizandoStatus, novosIds,
+  nomeLoja, whatsappRealcado,
   onToggle, onAvancar, onIniciarCancelar,
 }: KanbanColunaProps) {
   return (
@@ -280,6 +341,8 @@ function KanbanColuna({
               expandido={expandido === p.id}
               atualizandoStatus={atualizandoStatus === p.id}
               novo={novosIds.has(p.id)}
+              nomeLoja={nomeLoja}
+              whatsappRealcado={whatsappRealcado.has(p.id)}
               onToggle={() => onToggle(p.id)}
               onAvancar={status => onAvancar(p.id, status)}
               onIniciarCancelar={() => onIniciarCancelar(p.id)}
@@ -296,8 +359,9 @@ function KanbanColuna({
 export default function PainelPedidos() {
   const router = useRouter()
 
-  const [lojaId, setLojaId]   = useState<string | null | undefined>(undefined)
-  const [pedidos, setPedidos] = useState<Pedido[]>([])
+  const [lojaId, setLojaId]     = useState<string | null | undefined>(undefined)
+  const [nomeLoja, setNomeLoja]  = useState<string>('')
+  const [pedidos, setPedidos]    = useState<Pedido[]>([])
   const [carregando, setCarregando]   = useState(true)
   const [atualizando, setAtualizando] = useState(false)
 
@@ -306,7 +370,8 @@ export default function PainelPedidos() {
   const [loadingItens, setLoadingItens]       = useState<Record<string, boolean>>({})
   const [atualizandoStatus, setAtualizandoStatus] = useState<string | null>(null)
   const [confirmCancelar, setConfirmCancelar] = useState<string | null>(null)
-  const [novosIds, setNovosIds] = useState<Set<string>>(new Set())
+  const [novosIds, setNovosIds]               = useState<Set<string>>(new Set())
+  const [whatsappRealcado, setWhatsappRealcado] = useState<Set<string>>(new Set())
 
   /* ── Áudio ───────────────────────────────────────── */
   const audioCtxRef = useRef<AudioContext | null>(null)
@@ -380,13 +445,14 @@ export default function PainelPedidos() {
 
       const { data: lojaData } = await supabase
         .from('lojas')
-        .select('id')
+        .select('id, nome')
         .eq('dono_id', user.id)
         .maybeSingle()
 
       if (!lojaData) { setLojaId(null); setCarregando(false); return }
 
       setLojaId(lojaData.id)
+      setNomeLoja(lojaData.nome ?? '')
       await carregarPedidos(lojaData.id)
       setCarregando(false)
     }
@@ -503,6 +569,12 @@ export default function PainelPedidos() {
     if (error) {
       console.error('[OdeCasa] Erro ao atualizar status:', error)
       if (lojaId) carregarPedidos(lojaId) /* reverte em caso de falha */
+    } else {
+      /* Realça o botão WhatsApp por 5 s para lembrar de avisar o cliente */
+      setWhatsappRealcado(prev => { const s = new Set(prev); s.add(pedidoId); return s })
+      setTimeout(() => {
+        setWhatsappRealcado(prev => { const s = new Set(prev); s.delete(pedidoId); return s })
+      }, 5000)
     }
     setAtualizandoStatus(null)
   }
@@ -612,6 +684,8 @@ export default function PainelPedidos() {
               loadingItens={loadingItens}
               atualizandoStatus={atualizandoStatus}
               novosIds={novosIds}
+              nomeLoja={nomeLoja}
+              whatsappRealcado={whatsappRealcado}
               onToggle={handleToggle}
               onAvancar={handleAvancarStatus}
               onIniciarCancelar={id => setConfirmCancelar(id)}
