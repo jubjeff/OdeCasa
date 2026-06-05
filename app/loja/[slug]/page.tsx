@@ -4,7 +4,7 @@ import { useEffect, useReducer, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useParams } from 'next/navigation'
 import {
-  ShoppingCart, MapPin, Truck, ImageIcon, ShoppingBag, SearchX,
+  ShoppingCart, MapPin, Truck, ImageIcon, ShoppingBag, SearchX, Search,
   Minus, Plus, X, AlertCircle, ArrowLeft, CheckCircle2, Copy, Check, User,
 } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
@@ -112,6 +112,10 @@ interface PedidoConfirmado {
 
 function formatarReal(valor: number): string {
   return valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+}
+
+function normalizar(texto: string): string {
+  return texto.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
 }
 
 function aplicarMascaraTelefone(valor: string): string {
@@ -1091,6 +1095,7 @@ export default function PaginaLoja() {
   const [categorias, setCategorias] = useState<Categoria[]>([])
   const [produtos, setProdutos]     = useState<Produto[]>([])
   const [filtro, setFiltro]         = useState<Filtro>(null)
+  const [busca, setBusca]           = useState('')
   const [carrinho, dispatch]        = useReducer(carrinhoReducer, [])
   const [drawerAberto, setDrawerAberto] = useState(false)
   const [etapa, setEtapa]           = useState<Etapa>('loja')
@@ -1226,6 +1231,11 @@ export default function PaginaLoja() {
     setEtapa('loja')
   }
 
+  function handleLimparBusca() {
+    setBusca('')
+    setFiltro(null)
+  }
+
   if (loja === undefined) return null
 
   if (loja === null) {
@@ -1256,7 +1266,16 @@ export default function PaginaLoja() {
     ...(temOutros ? [{ id: 'outros' as string, nome: 'Outros' }] : []),
   ]
 
-  const secoes = computarSecoes(categorias, produtos, filtro)
+  // Busca no cliente (nome + descrição), ignorando acentos e maiúsculas.
+  // Combina com o filtro de categoria via computarSecoes.
+  const termoBusca = normalizar(busca.trim())
+  const produtosVisiveis = termoBusca
+    ? produtos.filter(p =>
+        normalizar(p.nome).includes(termoBusca) ||
+        (p.descricao ? normalizar(p.descricao).includes(termoBusca) : false)
+      )
+    : produtos
+  const secoes = computarSecoes(categorias, produtosVisiveis, filtro)
   const totalItens = carrinho.length
 
   return (
@@ -1365,11 +1384,48 @@ export default function PaginaLoja() {
       {/* ── Conteúdo principal ───────────────────── */}
       <main className="pb-28">
         <PageContainer size="reading">
-          {secoes.length === 0 ? (
+
+          {/* Busca por nome/descrição — no cliente, em tempo real */}
+          {produtos.length > 0 && (
+            <div className="pt-4">
+              <div className="relative">
+                <Search
+                  size={18}
+                  strokeWidth={1.75}
+                  className="absolute left-3.5 top-1/2 -translate-y-1/2 text-ink-mute pointer-events-none"
+                />
+                <input
+                  type="search"
+                  inputMode="search"
+                  value={busca}
+                  onChange={e => setBusca(e.target.value)}
+                  placeholder="Buscar produto"
+                  aria-label="Buscar produto"
+                  className={[
+                    'w-full h-11 rounded-full border border-line bg-surface pl-10 pr-4',
+                    'text-sm text-ink placeholder:text-ink-mute',
+                    'outline-none transition-shadow duration-150',
+                    'focus:ring-2 focus:ring-brand-500 focus:border-transparent',
+                  ].join(' ')}
+                />
+              </div>
+            </div>
+          )}
+
+          {produtos.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-20 text-center">
               <ShoppingBag size={48} strokeWidth={1.25} className="text-ink-mute mb-4" />
               <p className="text-base font-semibold text-ink">Nenhum produto disponível</p>
               <p className="text-sm text-ink-soft mt-1">Esta loja ainda não tem produtos.</p>
+            </div>
+          ) : secoes.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-20 text-center">
+              <SearchX size={48} strokeWidth={1.25} className="text-ink-mute mb-4" />
+              <p className="text-base font-semibold text-ink">Nenhum produto encontrado</p>
+              <p className="text-sm text-ink-soft mt-1 mb-5">Tente outro termo ou categoria.</p>
+              <Button variant="secondary" onClick={handleLimparBusca}>
+                Limpar busca e filtro
+              </Button>
             </div>
           ) : (
             secoes.map(secao => (
