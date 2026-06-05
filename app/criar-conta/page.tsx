@@ -32,7 +32,13 @@ function CriarContaInner() {
     const { data, error } = await supabase.auth.signUp({
       email,
       password: senha,
-      options: { data: { nome } },
+      options: {
+        data: { nome },
+        // Após confirmar o e-mail, volta para uma página que loga e
+        // redireciona à loja/checkout de origem.
+        emailRedirectTo:
+          `${window.location.origin}/auth/confirmado?redirect=${encodeURIComponent(redirect)}`,
+      },
     })
 
     if (error) {
@@ -50,7 +56,7 @@ function CriarContaInner() {
     // Caso contrário, é preciso confirmar o e-mail antes de entrar.
     setMensagem({
       tipo: 'sucesso',
-      texto: 'Conta criada! Verifique seu e-mail para confirmar e depois faça login.',
+      texto: 'Conta criada! Confirme pelo link no seu e-mail — você volta automaticamente para continuar.',
     })
     setCarregando(false)
   }

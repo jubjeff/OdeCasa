@@ -655,6 +655,22 @@ function TelaCheckout({
         <form id="form-checkout" onSubmit={handleSubmit} noValidate>
           <div className="max-w-2xl mx-auto px-4 py-5 space-y-5">
 
+            {/* Incentivo para convidado entrar/criar conta — sem bloquear o pedido */}
+            {!cliente && (
+              <div className="bg-brand-50 border border-brand-100 rounded-xl px-4 py-3 flex items-center gap-3">
+                <User size={18} strokeWidth={1.75} className="text-brand-600 shrink-0" />
+                <p className="text-sm text-ink-soft flex-1 leading-snug">
+                  Tem conta? Entre para salvar seus endereços e pedir mais rápido.
+                </p>
+                <Link
+                  href={`/entrar?redirect=${encodeURIComponent(`/loja/${loja.slug}`)}`}
+                  className="shrink-0 text-sm font-semibold text-brand-600 hover:text-brand-700 transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 rounded px-1"
+                >
+                  Entrar
+                </Link>
+              </div>
+            )}
+
             {/* Resumo dos itens */}
             <div className="bg-surface rounded-xl overflow-hidden shadow-sm">
               <div className="px-4 pt-4 pb-2">
