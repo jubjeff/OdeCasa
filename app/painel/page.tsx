@@ -22,6 +22,7 @@ interface Loja {
   pedido_minimo: number | null
   ativo: boolean
   logo_url: string | null
+  chave_pix: string | null
 }
 
 interface FormValues {
@@ -31,6 +32,7 @@ interface FormValues {
   endereco: string
   taxa_entrega: string
   pedido_minimo: string
+  chave_pix: string
 }
 
 type Feedback = { tipo: 'sucesso' | 'erro'; texto: string }
@@ -44,6 +46,7 @@ const FORM_VAZIO: FormValues = {
   endereco: '',
   taxa_entrega: '0',
   pedido_minimo: '',
+  chave_pix: '',
 }
 
 function gerarSlug(nome: string): string {
@@ -64,6 +67,7 @@ function lojaParaForm(l: Loja): FormValues {
     endereco: l.endereco ?? '',
     taxa_entrega: String(l.taxa_entrega),
     pedido_minimo: l.pedido_minimo != null ? String(l.pedido_minimo) : '',
+    chave_pix: l.chave_pix ?? '',
   }
 }
 
@@ -119,6 +123,7 @@ function LojaForm({ userId, loja, onSalvo, onCancelar }: LojaFormProps) {
       endereco: form.endereco.trim() || null,
       taxa_entrega: parseFloat(form.taxa_entrega) || 0,
       pedido_minimo: form.pedido_minimo ? parseFloat(form.pedido_minimo) : null,
+      chave_pix: form.chave_pix.trim() || null,
     }
 
     const { error } = loja
@@ -199,6 +204,19 @@ function LojaForm({ userId, loja, onSalvo, onCancelar }: LojaFormProps) {
           onChange={handleCampo('endereco')}
           placeholder="Rua, número, bairro"
         />
+
+        <div className="flex flex-col gap-1.5">
+          <Input
+            label="Chave Pix"
+            id="chave_pix"
+            value={form.chave_pix}
+            onChange={handleCampo('chave_pix')}
+            placeholder="CPF, telefone, e-mail ou chave aleatória"
+          />
+          <p className="text-xs text-ink-mute">
+            Opcional. Exibida no checkout quando o cliente escolher Pix.
+          </p>
+        </div>
 
         <div className="grid grid-cols-2 gap-4">
           <Input
@@ -286,6 +304,7 @@ function LojaInfo({ loja, onEditar, onLogoAtualizada }: LojaInfoProps) {
   const linhas = [
     { label: 'WhatsApp',        valor: loja.whatsapp },
     { label: 'Endereço',        valor: loja.endereco },
+    { label: 'Chave Pix',       valor: loja.chave_pix },
     { label: 'Taxa de entrega', valor: formatarReal(loja.taxa_entrega) },
     {
       label: 'Pedido mínimo',

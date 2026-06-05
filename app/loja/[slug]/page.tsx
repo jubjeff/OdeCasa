@@ -4,7 +4,7 @@ import { useEffect, useReducer, useState } from 'react'
 import { useParams } from 'next/navigation'
 import {
   ShoppingCart, MapPin, Truck, ImageIcon, ShoppingBag, SearchX,
-  Minus, Plus, X, AlertCircle, ArrowLeft, CheckCircle2,
+  Minus, Plus, X, AlertCircle, ArrowLeft, CheckCircle2, Copy, Check,
 } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { Card } from '@/components/ui/Card'
@@ -23,6 +23,7 @@ interface Loja {
   pedido_minimo: number | null
   ativo: boolean
   logo_url: string | null
+  chave_pix: string | null
 }
 
 interface Categoria {
@@ -486,6 +487,7 @@ function TelaCheckout({ carrinho, loja, onVoltar, onPedidoFeito }: TelaCheckoutP
   })
   const [erros, setErros] = useState<Partial<Record<keyof FormCheckout | 'geral', string>>>({})
   const [enviando, setEnviando] = useState(false)
+  const [copiado, setCopiado] = useState(false)
 
   function set(campo: keyof FormCheckout, valor: string) {
     setForm(f => ({ ...f, [campo]: valor }))
@@ -732,6 +734,50 @@ function TelaCheckout({ carrinho, loja, onVoltar, onPedidoFeito }: TelaCheckoutP
                   </button>
                 ))}
               </div>
+
+              {/* Bloco Pix — exibido apenas se a loja tiver chave cadastrada */}
+              {form.forma_pagamento === 'pix' && loja.chave_pix && (
+                <div className="rounded-xl bg-brand-50 border border-brand-200 p-4 space-y-3">
+                  <div className="space-y-2">
+                    <p className="text-xs font-semibold text-brand-700 uppercase tracking-wide">
+                      Chave Pix
+                    </p>
+                    <div className="flex items-center gap-3">
+                      <p className="text-sm font-mono font-semibold text-ink flex-1 break-all">
+                        {loja.chave_pix}
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          navigator.clipboard.writeText(loja.chave_pix!)
+                          setCopiado(true)
+                          setTimeout(() => setCopiado(false), 2000)
+                        }}
+                        aria-label="Copiar chave Pix"
+                        className={[
+                          'shrink-0 flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-full transition-all duration-150',
+                          copiado
+                            ? 'bg-brand-500 text-white'
+                            : 'bg-surface border border-brand-300 text-brand-700 hover:bg-brand-100',
+                        ].join(' ')}
+                      >
+                        {copiado
+                          ? <><Check size={13} strokeWidth={2.5} />Copiado!</>
+                          : <><Copy size={13} strokeWidth={1.75} />Copiar chave</>}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="border-t border-brand-200 pt-3 flex justify-between items-center">
+                    <span className="text-sm text-ink-soft">Total a pagar</span>
+                    <span className="text-base font-bold text-brand-700">{formatarReal(total)}</span>
+                  </div>
+
+                  <p className="text-xs text-ink-soft leading-relaxed">
+                    Você pode pagar agora ou na entrega — mostre o comprovante ao entregador.
+                  </p>
+                </div>
+              )}
 
               {form.forma_pagamento === 'dinheiro' && (
                 <div>
