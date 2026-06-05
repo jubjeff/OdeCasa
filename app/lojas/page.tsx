@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import Image from 'next/image'
 import Link from 'next/link'
-import { Search, MapPin, Truck, Store, SearchX } from 'lucide-react'
+import { Search, MapPin, Truck, Store, SearchX, ChevronDown } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 
 /* ── Tipos ───────────────────────────────────────── */
@@ -17,6 +17,19 @@ interface Loja {
   pedido_minimo: number | null
   logo_url: string | null
 }
+
+/* ── Categorias (apenas visual — lojas não têm tipo ainda) ── */
+
+const CATEGORIAS: { emoji: string; label: string }[] = [
+  { emoji: '🥬', label: 'Hortifrúti' },
+  { emoji: '🍎', label: 'Frutas' },
+  { emoji: '🥗', label: 'Orgânicos' },
+  { emoji: '🛒', label: 'Mercado' },
+  { emoji: '🥖', label: 'Padaria' },
+  { emoji: '🥩', label: 'Açougue' },
+  { emoji: '🧀', label: 'Frios' },
+  { emoji: '🥤', label: 'Bebidas' },
+]
 
 /* ── Helpers ─────────────────────────────────────── */
 
@@ -111,13 +124,15 @@ export default function HubLojas() {
     return lojas.filter(l => normalizar(l.nome).includes(alvo))
   }, [lojas, termo])
 
+  const total = lojas?.length ?? 0
+
   return (
     <div className="min-h-screen bg-bg flex flex-col">
 
       {/* ── Barra superior ───────────────────────── */}
       <header className="sticky top-0 z-30 bg-surface border-b border-line">
         <div className="max-w-5xl mx-auto px-4">
-          <div className="h-14 flex items-center">
+          <div className="h-14 flex items-center gap-3">
             <Image
               src="/odecasa-logo.png"
               alt="ÔdeCasa Delivery"
@@ -126,7 +141,15 @@ export default function HubLojas() {
               className="block shrink-0"
               priority
             />
-            <span className="ml-2 text-base font-semibold text-ink">Lojas</span>
+            <button
+              type="button"
+              className="flex items-center gap-1 text-sm text-ink-soft hover:text-ink transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 rounded px-1"
+              aria-label="Localização: Recife"
+            >
+              <MapPin size={15} strokeWidth={1.75} className="text-brand-500 shrink-0" />
+              <span className="font-medium text-ink">Recife</span>
+              <ChevronDown size={14} strokeWidth={1.75} className="text-ink-mute" />
+            </button>
           </div>
 
           {/* Busca */}
@@ -157,32 +180,69 @@ export default function HubLojas() {
       </header>
 
       {/* ── Conteúdo ─────────────────────────────── */}
-      <main className="flex-1 max-w-5xl mx-auto w-full px-4 py-5">
+      <main className="flex-1 max-w-5xl mx-auto w-full px-4 py-4">
 
         {lojas === undefined ? (
           <p className="text-sm text-ink-mute text-center py-16">Carregando lojas…</p>
-        ) : lojas.length === 0 ? (
-          // Nenhuma loja ativa cadastrada
+        ) : total === 0 ? (
+          /* Nenhuma loja ativa cadastrada */
           <div className="flex flex-col items-center justify-center text-center py-20">
             <Store size={44} strokeWidth={1.25} className="text-ink-mute mb-4" />
             <p className="text-base font-semibold text-ink">Nenhuma loja disponível por enquanto</p>
             <p className="text-sm text-ink-soft mt-1">Volte em breve para conferir novidades.</p>
           </div>
-        ) : filtradas.length === 0 ? (
-          // Busca sem resultado
-          <div className="flex flex-col items-center justify-center text-center py-20">
-            <SearchX size={44} strokeWidth={1.25} className="text-ink-mute mb-4" />
-            <p className="text-base font-semibold text-ink">
-              Nenhuma loja encontrada para “{termo}”
-            </p>
-            <p className="text-sm text-ink-soft mt-1">Tente buscar por outro nome.</p>
-          </div>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
-            {filtradas.map(loja => (
-              <CardLoja key={loja.id} loja={loja} />
-            ))}
-          </div>
+          <>
+            {/* Banner institucional */}
+            <div className="rounded-xl bg-gradient-to-br from-brand-500 to-brand-700 px-5 py-5 shadow-md flex items-center gap-4">
+              <div className="flex-1 min-w-0">
+                <p className="text-[17px] font-bold leading-snug text-surface">
+                  Peça do seu hortifrúti favorito
+                </p>
+                <p className="text-sm text-brand-100 mt-1 leading-snug">
+                  Direto da loja do seu bairro, sem comissão.
+                </p>
+              </div>
+              <span className="text-4xl shrink-0" aria-hidden="true">🥬</span>
+            </div>
+
+            {/* Fileira de categorias — apenas visual */}
+            <div
+              className="mt-5 flex gap-3 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+              aria-hidden="true"
+            >
+              {CATEGORIAS.map(cat => (
+                <div key={cat.label} className="shrink-0 flex flex-col items-center gap-1.5 w-16">
+                  <div className="w-14 h-14 rounded-full bg-brand-50 border border-line flex items-center justify-center text-2xl select-none">
+                    {cat.emoji}
+                  </div>
+                  <span className="text-xs text-ink-soft text-center leading-tight">{cat.label}</span>
+                </div>
+              ))}
+            </div>
+
+            {/* Vitrine */}
+            <h2 className="text-[18px] font-semibold text-ink mt-6 mb-3">
+              Lojas em Recife <span className="text-ink-mute font-medium">({total})</span>
+            </h2>
+
+            {filtradas.length === 0 ? (
+              /* Busca sem resultado */
+              <div className="flex flex-col items-center justify-center text-center py-16">
+                <SearchX size={44} strokeWidth={1.25} className="text-ink-mute mb-4" />
+                <p className="text-base font-semibold text-ink">
+                  Nenhuma loja encontrada para “{termo}”
+                </p>
+                <p className="text-sm text-ink-soft mt-1">Tente buscar por outro nome.</p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
+                {filtradas.map(loja => (
+                  <CardLoja key={loja.id} loja={loja} />
+                ))}
+              </div>
+            )}
+          </>
         )}
       </main>
     </div>
