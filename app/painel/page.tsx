@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { ImageIcon } from 'lucide-react'
+import { ImageIcon, Check, Copy, Lock } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
@@ -389,6 +389,131 @@ function LojaInfo({ loja, onEditar, onLogoAtualizada }: LojaInfoProps) {
   )
 }
 
+/* ── Onboarding: primeiros passos ───────────────────────── */
+
+interface PrimeirosPassosProps {
+  temLoja: boolean
+  temCategoria: boolean
+  temProduto: boolean
+}
+
+function PrimeirosPassos({ temLoja, temCategoria, temProduto }: PrimeirosPassosProps) {
+  const passos = [
+    { feito: temLoja,      bloqueado: false,    titulo: 'Criar sua loja',                 href: '/painel',           cta: 'Criar' },
+    { feito: temCategoria, bloqueado: !temLoja, titulo: 'Adicionar categorias',           href: '/painel/categorias', cta: 'Adicionar' },
+    { feito: temProduto,   bloqueado: !temLoja, titulo: 'Cadastrar seu primeiro produto', href: '/painel/produtos',   cta: 'Cadastrar' },
+  ]
+  const concluidos = passos.filter(p => p.feito).length
+
+  return (
+    <Card bodyClassName="p-6">
+      <h2 className="text-[18px] font-semibold text-ink">Primeiros passos</h2>
+      <p className="text-sm text-ink-soft mt-1 mb-4">
+        {concluidos} de 3 concluídos · finalize para publicar sua loja.
+      </p>
+
+      <ul className="flex flex-col divide-y divide-line">
+        {passos.map((passo, i) => (
+          <li key={i} className="flex items-center gap-3 py-3 first:pt-0 last:pb-0">
+            <span
+              className={[
+                'w-6 h-6 rounded-full flex items-center justify-center shrink-0',
+                passo.feito
+                  ? 'bg-brand-500 text-surface'
+                  : passo.bloqueado
+                    ? 'border border-line text-ink-mute'
+                    : 'border border-brand-300 text-brand-600',
+              ].join(' ')}
+            >
+              {passo.feito
+                ? <Check size={14} strokeWidth={3} />
+                : <span className="text-xs font-semibold">{i + 1}</span>}
+            </span>
+
+            <span
+              className={[
+                'flex-1 text-sm font-medium leading-snug',
+                passo.feito
+                  ? 'text-ink-mute line-through'
+                  : passo.bloqueado
+                    ? 'text-ink-mute'
+                    : 'text-ink',
+              ].join(' ')}
+            >
+              {passo.titulo}
+            </span>
+
+            {!passo.feito && (
+              passo.bloqueado ? (
+                <span className="inline-flex items-center gap-1 text-xs text-ink-mute shrink-0">
+                  <Lock size={12} strokeWidth={1.75} />
+                  Crie a loja
+                </span>
+              ) : (
+                <Link
+                  href={passo.href}
+                  className="shrink-0 inline-flex items-center justify-center min-h-[36px] px-3 rounded-md text-xs font-semibold bg-surface text-brand-700 border border-line hover:bg-brand-50 transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+                >
+                  {passo.cta}
+                </Link>
+              )
+            )}
+          </li>
+        ))}
+      </ul>
+    </Card>
+  )
+}
+
+/* ── Onboarding concluído: loja no ar ───────────────────── */
+
+function LojaNoAr({ slug, origin }: { slug: string; origin: string }) {
+  const [copiado, setCopiado] = useState(false)
+  const link = origin ? `${origin}/loja/${slug}` : `/loja/${slug}`
+
+  function copiar() {
+    navigator.clipboard.writeText(link)
+    setCopiado(true)
+    setTimeout(() => setCopiado(false), 2000)
+  }
+
+  return (
+    <Card bodyClassName="p-6">
+      <div className="flex items-start gap-3">
+        <span className="w-10 h-10 rounded-full bg-brand-100 flex items-center justify-center shrink-0">
+          <Check size={20} strokeWidth={2.5} className="text-brand-600" />
+        </span>
+        <div className="min-w-0">
+          <h2 className="text-[18px] font-semibold text-ink">Sua loja está no ar!</h2>
+          <p className="text-sm text-ink-soft mt-1 leading-snug">
+            Compartilhe o link abaixo para começar a receber pedidos.
+          </p>
+        </div>
+      </div>
+
+      <div className="mt-4 rounded-md border border-line bg-bg px-3 py-2.5">
+        <span className="text-sm text-ink-soft break-all">{link}</span>
+      </div>
+
+      <div className="flex gap-3 mt-3">
+        <Button variant="secondary" className="flex-1" onClick={copiar}>
+          {copiado
+            ? <><Check size={16} strokeWidth={2.5} />Copiado!</>
+            : <><Copy size={16} strokeWidth={1.75} />Copiar link</>}
+        </Button>
+        <a
+          href={`/loja/${slug}`}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="flex-1 inline-flex items-center justify-center gap-2 min-h-[48px] px-4 rounded-md font-semibold text-sm bg-brand-500 text-surface hover:bg-brand-600 active:scale-[0.98] transition-all duration-150 ease-out shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+        >
+          Ver minha loja
+        </a>
+      </div>
+    </Card>
+  )
+}
+
 /* ── Página ─────────────────────────────────────────────── */
 
 export default function Painel() {
@@ -398,6 +523,15 @@ export default function Painel() {
   // undefined = carregando; null = sem loja; Loja = tem loja
   const [loja, setLoja]       = useState<Loja | null | undefined>(undefined)
   const [editando, setEditando] = useState(false)
+
+  // Estado de progresso do onboarding
+  const [temCategoria, setTemCategoria] = useState(false)
+  const [temProduto, setTemProduto]     = useState(false)
+  const [origin, setOrigin]             = useState('')
+
+  useEffect(() => {
+    setOrigin(window.location.origin)
+  }, [])
 
   useEffect(() => {
     async function init() {
@@ -416,7 +550,19 @@ export default function Painel() {
         .eq('dono_id', user.id)
         .maybeSingle()
 
-      setLoja(data ? (data as Loja) : null)
+      const lojaEncontrada = data ? (data as Loja) : null
+
+      // Progresso: tem ao menos 1 categoria e 1 produto?
+      if (lojaEncontrada) {
+        const [{ count: catCount }, { count: prodCount }] = await Promise.all([
+          supabase.from('categorias').select('id', { count: 'exact', head: true }).eq('loja_id', lojaEncontrada.id),
+          supabase.from('produtos').select('id', { count: 'exact', head: true }).eq('loja_id', lojaEncontrada.id),
+        ])
+        setTemCategoria((catCount ?? 0) > 0)
+        setTemProduto((prodCount ?? 0) > 0)
+      }
+
+      setLoja(lojaEncontrada)
     }
 
     init()
@@ -434,6 +580,9 @@ export default function Painel() {
 
   // Aguardando sessão e dados da loja
   if (loja === undefined || !userId) return null
+
+  const temLoja = loja != null
+  const onboardingCompleto = temLoja && temCategoria && temProduto
 
   return (
     <main className="min-h-screen bg-bg py-10">
@@ -453,6 +602,17 @@ export default function Painel() {
             Sair
           </Button>
         </div>
+
+        {/* Onboarding: checklist enquanto incompleto; link permanente quando no ar */}
+        {onboardingCompleto && loja ? (
+          <LojaNoAr slug={loja.slug} origin={origin} />
+        ) : (
+          <PrimeirosPassos
+            temLoja={temLoja}
+            temCategoria={temCategoria}
+            temProduto={temProduto}
+          />
+        )}
 
         {/* Seção da loja */}
         {loja === null ? (
