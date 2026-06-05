@@ -11,6 +11,10 @@ import { supabase } from '@/lib/supabase'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { StatusBadge, type OrderStatus } from '@/components/ui/StatusBadge'
+import { TopBar } from '@/components/ui/TopBar'
+import { PageContainer } from '@/components/ui/PageContainer'
+import { SectionTitle } from '@/components/ui/SectionTitle'
+import { IconButton } from '@/components/ui/IconButton'
 
 /* ── Tipos ───────────────────────────────────────── */
 
@@ -393,16 +397,15 @@ export default function ContaCliente() {
     <div className="min-h-screen bg-bg flex flex-col">
 
       {/* Header */}
-      <header className="bg-surface border-b border-line sticky top-0 z-30">
-        <div className="max-w-lg mx-auto px-4 h-14 flex items-center gap-2">
-          <button
-            onClick={() => router.back()}
-            aria-label="Voltar"
-            className="w-10 h-10 flex items-center justify-center rounded-full hover:bg-brand-50 transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 shrink-0"
-          >
-            <ArrowLeft size={20} strokeWidth={1.75} className="text-ink" />
-          </button>
-          <h1 className="text-base font-semibold text-ink flex-1">Minha conta</h1>
+      <TopBar
+        width="narrow"
+        left={
+          <IconButton onClick={() => router.back()} aria-label="Voltar">
+            <ArrowLeft size={20} strokeWidth={1.75} />
+          </IconButton>
+        }
+        title="Minha conta"
+        right={
           <button
             onClick={handleSair}
             className="inline-flex items-center gap-1.5 text-sm font-medium text-danger hover:text-danger/80 transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 rounded px-2 py-1"
@@ -410,10 +413,11 @@ export default function ContaCliente() {
             <LogOut size={16} strokeWidth={1.75} />
             Sair
           </button>
-        </div>
-      </header>
+        }
+      />
 
-      <main className="max-w-lg mx-auto w-full px-4 py-6 flex flex-col gap-6">
+      <main>
+       <PageContainer size="narrow" className="py-6 flex flex-col gap-6">
 
         {/* Dados do cliente */}
         <div className="bg-surface rounded-xl px-4 py-4 shadow-sm">
@@ -425,9 +429,8 @@ export default function ContaCliente() {
 
         {/* Endereços */}
         <section className="flex flex-col gap-3">
-          <div className="flex items-center justify-between">
-            <h2 className="text-[18px] font-semibold text-ink">Meus endereços</h2>
-            {editando === null && (
+          <SectionTitle
+            action={editando === null && (
               <Button
                 variant="secondary"
                 className="!min-h-[40px] text-xs px-3"
@@ -437,7 +440,9 @@ export default function ContaCliente() {
                 Adicionar
               </Button>
             )}
-          </div>
+          >
+            Meus endereços
+          </SectionTitle>
 
           {/* Formulário novo endereço */}
           {editando === 'novo' && (
@@ -532,7 +537,7 @@ export default function ContaCliente() {
 
         {/* Meus pedidos */}
         <section className="flex flex-col gap-3">
-          <h2 className="text-[18px] font-semibold text-ink">Meus pedidos</h2>
+          <SectionTitle>Meus pedidos</SectionTitle>
 
           {pedidos.length === 0 ? (
             <div className="rounded-xl border border-dashed border-line py-10 text-center">
@@ -558,6 +563,7 @@ export default function ContaCliente() {
             ))
           )}
         </section>
+       </PageContainer>
       </main>
     </div>
   )
