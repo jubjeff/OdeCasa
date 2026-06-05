@@ -15,6 +15,7 @@ interface Loja {
   endereco: string | null
   taxa_entrega: number
   pedido_minimo: number | null
+  logo_url: string | null
 }
 
 /* ── Helpers ─────────────────────────────────────── */
@@ -46,11 +47,18 @@ function CardLoja({ loja }: { loja: Loja }) {
       href={`/loja/${loja.slug}`}
       className="group bg-surface rounded-lg overflow-hidden shadow-sm hover:shadow-md transition-shadow duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
     >
-      {/* Placeholder visual — degradê verde com a inicial da loja */}
+      {/* Topo em degradê verde; logo da loja como avatar (ou inicial no fallback) */}
       <div className="aspect-[5/3] bg-gradient-to-br from-brand-400 to-brand-600 flex items-center justify-center">
-        <span className="text-[44px] font-bold text-surface/90 leading-none select-none">
-          {inicial(loja.nome)}
-        </span>
+        {loja.logo_url ? (
+          <div className="w-20 h-20 rounded-full overflow-hidden bg-surface border-2 border-surface/70 shadow-sm">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={loja.logo_url} alt={loja.nome} className="w-full h-full object-cover" />
+          </div>
+        ) : (
+          <span className="text-[44px] font-bold text-surface/90 leading-none select-none">
+            {inicial(loja.nome)}
+          </span>
+        )}
       </div>
 
       <div className="p-3.5">
@@ -87,7 +95,7 @@ export default function HubLojas() {
     async function carregar() {
       const { data } = await supabase
         .from('lojas')
-        .select('id, nome, slug, endereco, taxa_entrega, pedido_minimo')
+        .select('id, nome, slug, endereco, taxa_entrega, pedido_minimo, logo_url')
         .eq('ativo', true)
         .order('nome', { ascending: true })
       setLojas((data as Loja[]) ?? [])
