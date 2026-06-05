@@ -1,11 +1,16 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
+import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { ArrowLeft, MapPin, Plus, Pencil, Trash2, Star, LogOut } from 'lucide-react'
+import {
+  ArrowLeft, MapPin, Plus, Pencil, Trash2, Star, LogOut,
+  ChevronDown, ChevronUp, ShoppingBag, Repeat,
+} from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
+import { StatusBadge, type OrderStatus } from '@/components/ui/StatusBadge'
 
 /* ── Tipos ───────────────────────────────────────── */
 
@@ -38,6 +43,147 @@ const FORM_VAZIO: FormEndereco = {
   endereco: '',
   complemento: '',
   referencia: '',
+}
+
+/* ── Pedidos: tipos e helpers ─────────────────────── */
+
+interface Pedido {
+  id: string
+  status: OrderStatus
+  total: number
+  criado_em: string
+  forma_pagamento: string
+  endereco_entrega: string
+  loja_nome: string
+  loja_slug: string
+}
+
+interface ItemPedido {
+  pedido_id: string
+  nome_produto: string
+  preco_unitario: number
+  unidade: string
+  quantidade: number
+  subtotal: number
+}
+
+function formatarReal(valor: number): string {
+  return valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+}
+
+function formatarData(iso: string): string {
+  return new Date(iso).toLocaleString('pt-BR', {
+    day: '2-digit', month: '2-digit', year: '2-digit',
+    hour: '2-digit', minute: '2-digit',
+  })
+}
+
+function formatarQtd(qtd: number, unidade: string): string {
+  if (unidade === 'kg')
+    return qtd.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })
+  return String(qtd)
+}
+
+const LABEL_UNIDADE: Record<string, string> = {
+  un: 'un.', kg: 'kg', g: 'g', maco: 'maço', duzia: 'dz.', l: 'L', bandeja: 'bdj.',
+}
+function labelUnidade(un: string): string {
+  return LABEL_UNIDADE[un] ?? un
+}
+
+const LABEL_PAGAMENTO: Record<string, string> = {
+  dinheiro: 'Dinheiro', pix: 'Pix', cartao_entrega: 'Cartão na entrega',
+}
+
+/* ── Card de pedido (histórico) ───────────────────── */
+
+interface PedidoCardProps {
+  pedido: Pedido
+  itens: ItemPedido[] | undefined
+  loadingItens: boolean
+  expandido: boolean
+  onToggle: () => void
+}
+
+function PedidoCard({ pedido, itens, loadingItens, expandido, onToggle }: PedidoCardProps) {
+  return (
+    <div className="bg-surface rounded-xl overflow-hidden shadow-sm">
+      <button
+        onClick={onToggle}
+        aria-expanded={expandido}
+        className="w-full text-left px-4 py-3.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-inset"
+      >
+        <div className="flex items-center justify-between gap-2">
+          <p className="text-sm font-semibold text-ink truncate">{pedido.loja_nome}</p>
+          <StatusBadge status={pedido.status} />
+        </div>
+        <div className="flex items-center justify-between gap-2 mt-1.5">
+          <p className="text-xs text-ink-mute">{formatarData(pedido.criado_em)}</p>
+          <div className="flex items-center gap-1.5">
+            <span className="text-[15px] font-bold text-brand-700">{formatarReal(pedido.total)}</span>
+            {expandido
+              ? <ChevronUp size={15} strokeWidth={2} className="text-ink-mute" />
+              : <ChevronDown size={15} strokeWidth={2} className="text-ink-mute" />}
+          </div>
+        </div>
+      </button>
+
+      {expandido && (
+        <div className="border-t border-line px-4 pb-4 pt-3 space-y-4">
+          {/* Itens */}
+          <div>
+            <p className="text-xs font-semibold text-ink-soft mb-2">Itens</p>
+            {loadingItens ? (
+              <p className="text-xs text-ink-mute">Carregando…</p>
+            ) : itens && itens.length > 0 ? (
+              <div className="space-y-1.5">
+                {itens.map((item, i) => (
+                  <div key={i} className="flex justify-between items-baseline gap-2">
+                    <span className="text-sm text-ink flex-1 min-w-0 truncate">
+                      {item.nome_produto}
+                      <span className="text-ink-mute ml-1">
+                        × {formatarQtd(item.quantidade, item.unidade)} {labelUnidade(item.unidade)}
+                      </span>
+                    </span>
+                    <span className="text-sm font-medium text-ink shrink-0">
+                      {formatarReal(item.subtotal)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-xs text-ink-mute">Sem itens registrados</p>
+            )}
+          </div>
+
+          {/* Entrega e pagamento */}
+          <div className="space-y-2 border-t border-line pt-3">
+            <div className="flex items-start gap-2">
+              <MapPin size={13} strokeWidth={1.75} className="text-ink-mute shrink-0 mt-0.5" />
+              <p className="text-sm text-ink-soft leading-snug">{pedido.endereco_entrega}</p>
+            </div>
+            <div className="flex justify-between text-sm">
+              <span className="text-ink-soft">Pagamento</span>
+              <span className="text-ink font-medium">
+                {LABEL_PAGAMENTO[pedido.forma_pagamento] ?? pedido.forma_pagamento}
+              </span>
+            </div>
+          </div>
+
+          {/* Pedir de novo */}
+          {pedido.loja_slug && (
+            <Link
+              href={`/loja/${pedido.loja_slug}?repetir=${pedido.id}`}
+              className="flex items-center justify-center gap-2 w-full min-h-[40px] rounded-md text-xs font-semibold px-3 bg-surface border border-line text-brand-700 hover:bg-brand-50 transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+            >
+              <Repeat size={14} strokeWidth={1.75} />
+              Pedir de novo
+            </Link>
+          )}
+        </div>
+      )}
+    </div>
+  )
 }
 
 /* ── Formulário de endereço (adicionar/editar) ───── */
@@ -124,6 +270,11 @@ export default function ContaCliente() {
   const [editando, setEditando] = useState<string | 'novo' | null>(null)
   const [salvando, setSalvando] = useState(false)
 
+  const [pedidos, setPedidos] = useState<Pedido[]>([])
+  const [expandidoPedido, setExpandidoPedido] = useState<string | null>(null)
+  const [itensPorPedido, setItensPorPedido] = useState<Record<string, ItemPedido[]>>({})
+  const [loadingItens, setLoadingItens] = useState<Record<string, boolean>>({})
+
   const carregarEnderecos = useCallback(async (clienteId: string) => {
     const { data } = await supabase
       .from('enderecos')
@@ -132,6 +283,29 @@ export default function ContaCliente() {
       .order('padrao', { ascending: false })
       .order('criado_em', { ascending: true })
     setEnderecos((data as Endereco[]) ?? [])
+  }, [])
+
+  const carregarPedidos = useCallback(async (clienteId: string) => {
+    const { data } = await supabase
+      .from('pedidos')
+      .select('id,status,total,criado_em,forma_pagamento,endereco_entrega,lojas(nome,slug)')
+      .eq('cliente_id', clienteId)
+      .order('criado_em', { ascending: false })
+
+    const norm: Pedido[] = (data ?? []).map((p) => {
+      const loja = (p as { lojas?: { nome?: string; slug?: string } | null }).lojas
+      return {
+        id: p.id as string,
+        status: p.status as OrderStatus,
+        total: p.total as number,
+        criado_em: p.criado_em as string,
+        forma_pagamento: p.forma_pagamento as string,
+        endereco_entrega: p.endereco_entrega as string,
+        loja_nome: loja?.nome ?? 'Loja',
+        loja_slug: loja?.slug ?? '',
+      }
+    })
+    setPedidos(norm)
   }, [])
 
   useEffect(() => {
@@ -146,10 +320,25 @@ export default function ContaCliente() {
         nome: (user.user_metadata?.nome as string) ?? '',
         email: user.email ?? '',
       })
-      await carregarEnderecos(user.id)
+      await Promise.all([carregarEnderecos(user.id), carregarPedidos(user.id)])
     }
     init()
-  }, [router, carregarEnderecos])
+  }, [router, carregarEnderecos, carregarPedidos])
+
+  async function handleTogglePedido(id: string) {
+    const abrindo = expandidoPedido !== id
+    setExpandidoPedido(abrindo ? id : null)
+
+    if (abrindo && !itensPorPedido[id]) {
+      setLoadingItens(prev => ({ ...prev, [id]: true }))
+      const { data } = await supabase
+        .from('itens_pedido')
+        .select('*')
+        .eq('pedido_id', id)
+      setItensPorPedido(prev => ({ ...prev, [id]: (data as ItemPedido[]) ?? [] }))
+      setLoadingItens(prev => ({ ...prev, [id]: false }))
+    }
+  }
 
   async function handleSair() {
     await supabase.auth.signOut()
@@ -199,11 +388,6 @@ export default function ContaCliente() {
 
   if (cliente === undefined) return null
   if (cliente === null) return null
-
-  const enderecoEditando =
-    editando && editando !== 'novo'
-      ? enderecos.find(e => e.id === editando)
-      : undefined
 
   return (
     <div className="min-h-screen bg-bg flex flex-col">
@@ -342,6 +526,35 @@ export default function ContaCliente() {
                   </div>
                 </div>
               )
+            ))
+          )}
+        </section>
+
+        {/* Meus pedidos */}
+        <section className="flex flex-col gap-3">
+          <h2 className="text-[18px] font-semibold text-ink">Meus pedidos</h2>
+
+          {pedidos.length === 0 ? (
+            <div className="rounded-xl border border-dashed border-line py-10 text-center">
+              <ShoppingBag size={28} strokeWidth={1.25} className="text-ink-mute mx-auto mb-2" />
+              <p className="text-sm text-ink-soft">Você ainda não fez pedidos.</p>
+              <Link
+                href="/"
+                className="inline-block mt-2 text-sm font-semibold text-brand-600 hover:text-brand-700 transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 rounded px-1"
+              >
+                Explorar a loja
+              </Link>
+            </div>
+          ) : (
+            pedidos.map(p => (
+              <PedidoCard
+                key={p.id}
+                pedido={p}
+                itens={itensPorPedido[p.id]}
+                loadingItens={!!loadingItens[p.id]}
+                expandido={expandidoPedido === p.id}
+                onToggle={() => handleTogglePedido(p.id)}
+              />
             ))
           )}
         </section>

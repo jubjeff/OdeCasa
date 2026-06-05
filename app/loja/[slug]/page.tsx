@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useReducer, useState } from 'react'
+import { useEffect, useReducer, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useParams } from 'next/navigation'
 import {
@@ -74,6 +74,7 @@ interface Endereco {
 
 type AcaoCarrinho =
   | { type: 'ADICIONAR'; produto: Produto }
+  | { type: 'ADICIONAR_ITENS'; itens: { produto: Produto; quantidade: number }[] }
   | { type: 'INCREMENTAR'; id: string; unidade: string }
   | { type: 'DECREMENTAR'; id: string; unidade: string }
   | { type: 'REMOVER'; id: string }
@@ -198,6 +199,25 @@ function carrinhoReducer(state: ItemCarrinho[], acao: AcaoCarrinho): ItemCarrinh
         foto_url: acao.produto.foto_url,
         quantidade: 1,
       }]
+    }
+    case 'ADICIONAR_ITENS': {
+      const novo = [...state]
+      for (const { produto, quantidade } of acao.itens) {
+        const idx = novo.findIndex(i => i.id === produto.id)
+        if (idx >= 0) {
+          novo[idx] = { ...novo[idx], quantidade: novo[idx].quantidade + quantidade }
+        } else {
+          novo.push({
+            id: produto.id,
+            nome: produto.nome,
+            preco: produto.preco,
+            unidade: produto.unidade,
+            foto_url: produto.foto_url,
+            quantidade,
+          })
+        }
+      }
+      return novo
     }
     case 'INCREMENTAR': {
       const passo = incrementoPor(acao.unidade)
@@ -1151,6 +1171,40 @@ export default function PaginaLoja() {
   useEffect(() => {
     if (carrinho.length === 0) setDrawerAberto(false)
   }, [carrinho.length])
+
+  /* "Pedir de novo" (?repetir=<pedidoId>): recoloca no carrinho só os
+     itens daquele pedido cujos produtos ainda estão disponíveis. */
+  const repetirAplicadoRef = useRef(false)
+  useEffect(() => {
+    if (repetirAplicadoRef.current) return
+    if (produtos.length === 0) return
+
+    const repetir = new URLSearchParams(window.location.search).get('repetir')
+    if (!repetir) return
+    repetirAplicadoRef.current = true
+
+    ;(async () => {
+      const { data } = await supabase
+        .from('itens_pedido')
+        .select('produto_id,quantidade')
+        .eq('pedido_id', repetir)
+
+      const itens = (data ?? [])
+        .map((it) => {
+          const produto = produtos.find(p => p.id === it.produto_id)
+          return produto ? { produto, quantidade: Number(it.quantidade) } : null
+        })
+        .filter((x): x is { produto: Produto; quantidade: number } => x !== null)
+
+      if (itens.length > 0) {
+        dispatch({ type: 'ADICIONAR_ITENS', itens })
+        setDrawerAberto(true)
+      }
+
+      // Limpa o parâmetro da URL para não repetir em refresh
+      window.history.replaceState(null, '', `/loja/${slug}`)
+    })()
+  }, [produtos, slug])
 
   function handleContinuar() {
     setDrawerAberto(false)
