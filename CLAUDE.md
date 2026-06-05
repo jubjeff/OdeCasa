@@ -81,6 +81,17 @@ Status do pedido (cor das pílulas):
 - Navegação inferior (mobile): surface, borda superior hairline, item ativo brand-500.
 - Estado vazio: ícone discreto + frase curta + ação. Nunca tela em branco.
 
+### Componentes reutilizáveis (em components/ui) — referência visual: /lojas
+Toda página DEVE usar TopBar + PageContainer e os títulos de seção padrão.
+Largura do TopBar e do PageContainer devem casar (mesmo `size`).
+- `PageContainer` — wrap de conteúdo. size: `wide` (max-w-5xl, hubs/listas) ou `narrow` (max-w-lg, forms/painel/conta). px-4.
+- `TopBar` — barra fixa (surface + hairline). Slots: left, title, right, below (linha de busca). Prop `width` casa com o PageContainer.
+- `IconButton` — botão circular 40px de ação na TopBar (voltar, atualizar…).
+- `SectionTitle` — título de seção 18px/600, com `count` e `action` opcionais.
+- `Chip` — pílula de categoria/filtro. `selected` = brand-100/700.
+- `Card` — surface, raio lg, sombra sm→md no hover (já é o card de /lojas).
+- `Button`, `Input`, `StatusBadge`, `ConfirmDialog` — já existentes.
+
 ### Movimento e ícones
 - Transições 150-200ms ease-out, sutis. Respeitar prefers-reduced-motion.
 - Ícones lucide-react, traço ~1.75, tamanho 20-24px.
