@@ -8,6 +8,7 @@ import { supabase } from '@/lib/supabase'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Card } from '@/components/ui/Card'
+import { PageContainer } from '@/components/ui/PageContainer'
 
 /* ── Tipos ─────────────────────────────────────────────── */
 
@@ -435,8 +436,8 @@ export default function Painel() {
   if (loja === undefined || !userId) return null
 
   return (
-    <main className="min-h-screen bg-bg px-4 py-10">
-      <div className="max-w-lg mx-auto flex flex-col gap-6">
+    <main className="min-h-screen bg-bg py-10">
+      <PageContainer size="narrow" className="flex flex-col gap-6">
 
         {/* Cabeçalho */}
         <div className="flex items-center justify-between">
@@ -513,7 +514,7 @@ export default function Painel() {
           </div>
         )}
 
-      </div>
+      </PageContainer>
     </main>
   )
 }

@@ -8,6 +8,7 @@ import { supabase } from '@/lib/supabase'
 import { Button } from '@/components/ui/Button'
 import { StatusBadge, type OrderStatus } from '@/components/ui/StatusBadge'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
+import { IconButton } from '@/components/ui/IconButton'
 
 /* ── Tipos ───────────────────────────────────────── */
 
@@ -630,27 +631,22 @@ export default function PainelPedidos() {
               <Volume2 size={18} strokeWidth={1.75} className="text-brand-500" />
             </div>
           ) : (
-            <button
-              onClick={handleAtivarSom}
-              aria-label="Ativar som de pedidos"
-              className="w-10 h-10 flex items-center justify-center rounded-full hover:bg-brand-50 transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
-            >
+            <IconButton onClick={handleAtivarSom} aria-label="Ativar som de pedidos">
               <VolumeX size={18} strokeWidth={1.75} className="text-ink-mute" />
-            </button>
+            </IconButton>
           )}
 
-          <button
+          <IconButton
             onClick={handleAtualizar}
             disabled={atualizando}
             aria-label="Atualizar pedidos"
-            className="w-10 h-10 flex items-center justify-center rounded-full hover:bg-brand-50 transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 disabled:opacity-40"
           >
             <RefreshCw
               size={18}
               strokeWidth={1.75}
               className={`text-ink ${atualizando ? 'animate-spin' : ''}`}
             />
-          </button>
+          </IconButton>
         </div>
       </header>
 

@@ -8,6 +8,8 @@ import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Card } from '@/components/ui/Card'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
+import { PageContainer } from '@/components/ui/PageContainer'
+import { SectionTitle } from '@/components/ui/SectionTitle'
 
 /* ── Tipos ─────────────────────────────────────────── */
 
@@ -169,8 +171,8 @@ export default function Categorias() {
 
   return (
     <>
-    <main className="min-h-screen bg-bg px-4 py-10">
-      <div className="max-w-lg mx-auto flex flex-col gap-6">
+    <main className="min-h-screen bg-bg py-10">
+      <PageContainer size="narrow" className="flex flex-col gap-6">
 
         {/* Cabeçalho */}
         <div className="flex items-center justify-between">
@@ -206,12 +208,7 @@ export default function Categorias() {
 
         {/* Lista de categorias */}
         <Card bodyClassName="p-6">
-          <h2 className="text-[18px] font-semibold text-ink mb-1">
-            Categorias{' '}
-            <span className="text-ink-mute font-normal text-base">
-              ({categorias.length})
-            </span>
-          </h2>
+          <SectionTitle count={categorias.length} className="mb-1">Categorias</SectionTitle>
 
           {categorias.length === 0 ? (
             <p className="text-sm text-ink-mute text-center py-6">
@@ -276,7 +273,7 @@ export default function Categorias() {
           )}
         </Card>
 
-      </div>
+      </PageContainer>
     </main>
 
     {dialogo && (

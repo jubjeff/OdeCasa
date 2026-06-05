@@ -10,6 +10,7 @@ import { Input } from '@/components/ui/Input'
 import { Card } from '@/components/ui/Card'
 import { StatusBadge } from '@/components/ui/StatusBadge'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
+import { PageContainer } from '@/components/ui/PageContainer'
 
 /* ── Tipos ───────────────────────────────────────── */
 
@@ -591,8 +592,8 @@ export default function Produtos() {
 
   return (
     <>
-    <main className="min-h-screen bg-bg px-4 py-10">
-      <div className="max-w-lg mx-auto flex flex-col gap-6">
+    <main className="min-h-screen bg-bg py-10">
+      <PageContainer size="narrow" className="flex flex-col gap-6">
 
         {/* Cabeçalho */}
         <div className="flex items-center justify-between">
@@ -643,7 +644,7 @@ export default function Produtos() {
           )
         )}
 
-      </div>
+      </PageContainer>
     </main>
 
     {/* Diálogo de confirmação de exclusão */}
