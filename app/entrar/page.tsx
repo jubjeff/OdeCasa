@@ -52,10 +52,7 @@ function EntrarInner() {
           priority
         />
         <Card bodyClassName="p-8">
-          <h1 className="text-[22px] font-bold text-ink mb-1">Entrar</h1>
-          <p className="text-sm text-ink-soft mb-6">
-            Acesse sua conta para usar seus endereços salvos.
-          </p>
+          <h1 className="text-[22px] font-bold text-ink mb-6">Entrar</h1>
 
           <form onSubmit={handleSubmit} className="flex flex-col gap-4">
             <Input

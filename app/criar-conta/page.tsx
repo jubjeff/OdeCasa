@@ -74,10 +74,7 @@ function CriarContaInner() {
           priority
         />
         <Card bodyClassName="p-8">
-          <h1 className="text-[22px] font-bold text-ink mb-1">Criar conta</h1>
-          <p className="text-sm text-ink-soft mb-6">
-            Salve seus endereços e peça mais rápido na próxima vez.
-          </p>
+          <h1 className="text-[22px] font-bold text-ink mb-6">Criar conta</h1>
 
           <form onSubmit={handleSubmit} className="flex flex-col gap-4">
             <Input
