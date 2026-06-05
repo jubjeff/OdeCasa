@@ -11,6 +11,10 @@ import { supabase } from '@/lib/supabase'
 import { Card } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
+import { TopBar } from '@/components/ui/TopBar'
+import { PageContainer } from '@/components/ui/PageContainer'
+import { SectionTitle } from '@/components/ui/SectionTitle'
+import { Chip } from '@/components/ui/Chip'
 
 /* ── Tipos ───────────────────────────────────────── */
 
@@ -1258,11 +1262,13 @@ export default function PaginaLoja() {
   return (
     <div className="min-h-screen bg-bg">
 
-      {/* ── Barra superior fixa ──────────────────── */}
-      <header className="fixed top-0 inset-x-0 z-40 bg-surface border-b border-line">
-        <div className="max-w-2xl mx-auto px-4 h-14 flex items-center justify-between gap-4">
+      {/* ── Barra superior ───────────────────────── */}
+      <TopBar
+        width="reading"
+        left={
           <div className="flex items-center gap-2.5 min-w-0">
             {loja.logo_url && (
+              // eslint-disable-next-line @next/next/no-img-element
               <img
                 src={loja.logo_url}
                 alt={loja.nome}
@@ -1271,8 +1277,9 @@ export default function PaginaLoja() {
             )}
             <p className="text-base font-semibold text-ink truncate">{loja.nome}</p>
           </div>
-
-          <div className="flex items-center gap-1 shrink-0">
+        }
+        right={
+          <>
             {/* Conta do cliente: Entrar quando deslogado, Minha conta quando logado */}
             {cliente ? (
               <Link
@@ -1306,15 +1313,13 @@ export default function PaginaLoja() {
                 </span>
               )}
             </button>
-          </div>
-        </div>
-      </header>
-
-      <div className="h-14" />
+          </>
+        }
+      />
 
       {/* ── Cabeçalho da loja ────────────────────── */}
       <div className="bg-surface border-b border-line">
-        <div className="max-w-2xl mx-auto px-4 py-5">
+        <PageContainer size="reading" className="py-5">
           <h1 className="text-[22px] font-bold text-ink">{loja.nome}</h1>
 
           {loja.endereco && (
@@ -1335,7 +1340,7 @@ export default function PaginaLoja() {
               </span>
             )}
           </div>
-        </div>
+        </PageContainer>
       </div>
 
       {/* ── Chips de categoria ────────────────────── */}
@@ -1344,19 +1349,13 @@ export default function PaginaLoja() {
           <div className="max-w-2xl mx-auto">
             <div className="flex gap-2 overflow-x-auto px-4 py-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
               {chips.map(chip => (
-                <button
+                <Chip
                   key={chip.id ?? 'todos'}
+                  selected={filtro === chip.id}
                   onClick={() => setFiltro(chip.id)}
-                  className={[
-                    'shrink-0 px-4 h-9 rounded-full text-sm font-medium',
-                    'transition-colors duration-150 whitespace-nowrap',
-                    filtro === chip.id
-                      ? 'bg-brand-100 text-brand-700'
-                      : 'bg-surface border border-line text-ink-soft hover:bg-brand-50',
-                  ].join(' ')}
                 >
                   {chip.nome}
-                </button>
+                </Chip>
               ))}
             </div>
           </div>
@@ -1364,30 +1363,32 @@ export default function PaginaLoja() {
       )}
 
       {/* ── Conteúdo principal ───────────────────── */}
-      <main className="max-w-2xl mx-auto px-4 pb-28">
-        {secoes.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-20 text-center">
-            <ShoppingBag size={48} strokeWidth={1.25} className="text-ink-mute mb-4" />
-            <p className="text-base font-semibold text-ink">Nenhum produto disponível</p>
-            <p className="text-sm text-ink-soft mt-1">Esta loja ainda não tem produtos.</p>
-          </div>
-        ) : (
-          secoes.map(secao => (
-            <section key={secao.id} id={`cat-${secao.id}`} className="mt-6 scroll-mt-36">
-              <h2 className="text-[18px] font-semibold text-ink mb-3">{secao.nome}</h2>
-              <div className="grid grid-cols-2 gap-3">
-                {secao.itens.map(p => (
-                  <CardProduto
-                    key={p.id}
-                    produto={p}
-                    itemCarrinho={carrinho.find(i => i.id === p.id)}
-                    dispatch={dispatch}
-                  />
-                ))}
-              </div>
-            </section>
-          ))
-        )}
+      <main className="pb-28">
+        <PageContainer size="reading">
+          {secoes.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-20 text-center">
+              <ShoppingBag size={48} strokeWidth={1.25} className="text-ink-mute mb-4" />
+              <p className="text-base font-semibold text-ink">Nenhum produto disponível</p>
+              <p className="text-sm text-ink-soft mt-1">Esta loja ainda não tem produtos.</p>
+            </div>
+          ) : (
+            secoes.map(secao => (
+              <section key={secao.id} id={`cat-${secao.id}`} className="mt-6 scroll-mt-36">
+                <SectionTitle className="mb-3">{secao.nome}</SectionTitle>
+                <div className="grid grid-cols-2 gap-3">
+                  {secao.itens.map(p => (
+                    <CardProduto
+                      key={p.id}
+                      produto={p}
+                      itemCarrinho={carrinho.find(i => i.id === p.id)}
+                      dispatch={dispatch}
+                    />
+                  ))}
+                </div>
+              </section>
+            ))
+          )}
+        </PageContainer>
       </main>
 
       {/* ── Barra de carrinho ────────────────────── */}

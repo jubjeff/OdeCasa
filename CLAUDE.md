@@ -84,7 +84,7 @@ Status do pedido (cor das pílulas):
 ### Componentes reutilizáveis (em components/ui) — referência visual: /lojas
 Toda página DEVE usar TopBar + PageContainer e os títulos de seção padrão.
 Largura do TopBar e do PageContainer devem casar (mesmo `size`).
-- `PageContainer` — wrap de conteúdo. size: `wide` (max-w-5xl, hubs/listas) ou `narrow` (max-w-lg, forms/painel/conta). px-4.
+- `PageContainer` — wrap de conteúdo. size: `wide` (max-w-5xl, hubs/listas), `reading` (max-w-2xl, cardápio/checkout) ou `narrow` (max-w-lg, forms/painel/conta). px-4.
 - `TopBar` — barra fixa (surface + hairline). Slots: left, title, right, below (linha de busca). Prop `width` casa com o PageContainer.
 - `IconButton` — botão circular 40px de ação na TopBar (voltar, atualizar…).
 - `SectionTitle` — título de seção 18px/600, com `count` e `action` opcionais.

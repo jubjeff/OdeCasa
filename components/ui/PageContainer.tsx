@@ -1,11 +1,12 @@
 import { HTMLAttributes } from 'react'
 
 /* Larguras de conteúdo padronizadas (compartilhadas com a TopBar) */
-export type WrapSize = 'wide' | 'narrow'
+export type WrapSize = 'wide' | 'reading' | 'narrow'
 
 export const WRAP_MAX: Record<WrapSize, string> = {
-  wide: 'max-w-5xl',   // hubs e listagens (referência: /lojas)
-  narrow: 'max-w-lg',  // formulários, painel, conta
+  wide: 'max-w-5xl',     // hubs e listagens (referência: /lojas)
+  reading: 'max-w-2xl',  // cardápio e checkout (leitura em coluna)
+  narrow: 'max-w-lg',    // formulários, painel, conta
 }
 
 interface PageContainerProps extends HTMLAttributes<HTMLDivElement> {
