@@ -2,6 +2,7 @@ import Image from 'next/image'
 import Link from 'next/link'
 import { createClient } from '@supabase/supabase-js'
 import { MapPin, Truck, ArrowRight, Sprout, MessageCircle } from 'lucide-react'
+import { PageContainer } from '@/components/ui/PageContainer'
 
 /* ── Busca server-side (sem login, chave anon) ───── */
 
@@ -73,7 +74,7 @@ export default async function Home() {
         />
       </header>
 
-      <div className="flex-1 flex flex-col w-full max-w-md mx-auto px-6">
+      <PageContainer size="narrow" className="flex-1 flex flex-col">
 
         {loja ? (
           <div className="flex-1 flex flex-col items-center justify-center text-center py-6">
@@ -167,7 +168,7 @@ export default async function Home() {
             </p>
           </div>
         )}
-      </div>
+      </PageContainer>
 
       {/* Rodapé */}
       <div className="px-6 pb-8 text-center shrink-0">
