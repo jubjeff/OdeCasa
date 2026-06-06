@@ -1,9 +1,8 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { ArrowLeft, RefreshCw, ChevronDown, ChevronUp, Phone, MapPin, Volume2, VolumeX, MessageCircle } from 'lucide-react'
+import { RefreshCw, ChevronDown, ChevronUp, Phone, MapPin, Volume2, VolumeX, MessageCircle } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { Button } from '@/components/ui/Button'
 import { StatusBadge, type OrderStatus } from '@/components/ui/StatusBadge'
@@ -607,48 +606,36 @@ export default function PainelPedidos() {
   /* ── Render principal ─────────────────────────────── */
 
   return (
-    <div className="min-h-screen bg-bg flex flex-col">
+    <div className="flex flex-col">
 
-      {/* Header */}
-      <header className="bg-surface border-b border-line sticky top-0 z-30">
-        <div className="px-4 h-14 flex items-center gap-2">
-          <Link
-            href="/painel"
-            aria-label="Voltar ao painel"
-            className="w-10 h-10 flex items-center justify-center rounded-full hover:bg-brand-50 transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 shrink-0"
+      {/* Toolbar de ações da página (navegação fica na sidebar) */}
+      <div className="px-4 h-12 flex items-center justify-end gap-1 border-b border-line bg-surface">
+        {/* Indicador / botão de som */}
+        {somAtivo ? (
+          <div
+            aria-label="Som de pedidos ativo"
+            className="w-10 h-10 flex items-center justify-center"
           >
-            <ArrowLeft size={20} strokeWidth={1.75} className="text-ink" />
-          </Link>
-
-          <h1 className="text-base font-semibold text-ink flex-1">Pedidos</h1>
-
-          {/* Indicador / botão de som */}
-          {somAtivo ? (
-            <div
-              aria-label="Som de pedidos ativo"
-              className="w-10 h-10 flex items-center justify-center"
-            >
-              <Volume2 size={18} strokeWidth={1.75} className="text-brand-500" />
-            </div>
-          ) : (
-            <IconButton onClick={handleAtivarSom} aria-label="Ativar som de pedidos">
-              <VolumeX size={18} strokeWidth={1.75} className="text-ink-mute" />
-            </IconButton>
-          )}
-
-          <IconButton
-            onClick={handleAtualizar}
-            disabled={atualizando}
-            aria-label="Atualizar pedidos"
-          >
-            <RefreshCw
-              size={18}
-              strokeWidth={1.75}
-              className={`text-ink ${atualizando ? 'animate-spin' : ''}`}
-            />
+            <Volume2 size={18} strokeWidth={1.75} className="text-brand-500" />
+          </div>
+        ) : (
+          <IconButton onClick={handleAtivarSom} aria-label="Ativar som de pedidos">
+            <VolumeX size={18} strokeWidth={1.75} className="text-ink-mute" />
           </IconButton>
-        </div>
-      </header>
+        )}
+
+        <IconButton
+          onClick={handleAtualizar}
+          disabled={atualizando}
+          aria-label="Atualizar pedidos"
+        >
+          <RefreshCw
+            size={18}
+            strokeWidth={1.75}
+            className={`text-ink ${atualizando ? 'animate-spin' : ''}`}
+          />
+        </IconButton>
+      </div>
 
       {/* Banner de ativação de som — desaparece após ativar */}
       {!somAtivo && (

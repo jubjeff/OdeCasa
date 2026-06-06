@@ -519,7 +519,6 @@ function LojaNoAr({ slug, origin }: { slug: string; origin: string }) {
 export default function Painel() {
   const router = useRouter()
   const [userId, setUserId]   = useState<string | null>(null)
-  const [email, setEmail]     = useState<string | null>(null)
   // undefined = carregando; null = sem loja; Loja = tem loja
   const [loja, setLoja]       = useState<Loja | null | undefined>(undefined)
   const [editando, setEditando] = useState(false)
@@ -541,7 +540,6 @@ export default function Painel() {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) { router.push('/login'); return }
 
-      setEmail(user.email ?? null)
       setUserId(user.id)
 
       const { data } = await supabase
@@ -568,11 +566,6 @@ export default function Painel() {
     init()
   }, [router])
 
-  async function handleSair() {
-    await supabase.auth.signOut()
-    router.push('/login')
-  }
-
   function handleSalvo(novaLoja: Loja) {
     setLoja(novaLoja)
     setEditando(false)
@@ -585,23 +578,8 @@ export default function Painel() {
   const onboardingCompleto = temLoja && temCategoria && temProduto
 
   return (
-    <main className="min-h-screen bg-bg py-10">
+    <main className="py-8">
       <PageContainer size="narrow" className="flex flex-col gap-6">
-
-        {/* Cabeçalho */}
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="text-sm text-ink-soft">Painel do dono</p>
-            <p className="text-base font-semibold text-ink mt-0.5">{email}</p>
-          </div>
-          <Button
-            variant="secondary"
-            onClick={handleSair}
-            className="text-danger border-danger/30 hover:bg-danger/10"
-          >
-            Sair
-          </Button>
-        </div>
 
         {/* Onboarding: checklist enquanto incompleto; link permanente quando no ar */}
         {onboardingCompleto && loja ? (
@@ -633,45 +611,6 @@ export default function Painel() {
             onEditar={() => setEditando(true)}
             onLogoAtualizada={url => setLoja(prev => prev == null ? prev : { ...prev, logo_url: url })}
           />
-        )}
-
-        {/* Atalhos de gestão (só quando há loja e não está editando) */}
-        {loja && !editando && (
-          <div className="flex flex-col gap-3">
-            <Link
-              href="/painel/pedidos"
-              className={[
-                'inline-flex items-center justify-center',
-                'min-h-[48px] px-4 rounded-md font-semibold text-sm',
-                'bg-brand-500 text-surface',
-                'hover:bg-brand-600 active:scale-[0.98] transition-all duration-150 ease-out shadow-sm',
-                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500',
-              ].join(' ')}
-            >
-              Ver pedidos
-            </Link>
-
-            <div className="grid grid-cols-2 gap-3">
-              {[
-                { href: '/painel/categorias', label: 'Categorias' },
-                { href: '/painel/produtos',   label: 'Produtos'   },
-              ].map(({ href, label }) => (
-                <Link
-                  key={href}
-                  href={href}
-                  className={[
-                    'inline-flex items-center justify-center',
-                    'min-h-[48px] px-4 rounded-md font-semibold text-sm',
-                    'bg-surface text-brand-700 border border-line',
-                    'hover:bg-brand-50 transition-all duration-150 ease-out',
-                    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500',
-                  ].join(' ')}
-                >
-                  {label}
-                </Link>
-              ))}
-            </div>
-          </div>
         )}
 
       </PageContainer>

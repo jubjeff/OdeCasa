@@ -171,19 +171,8 @@ export default function Categorias() {
 
   return (
     <>
-    <main className="min-h-screen bg-bg py-10">
+    <main className="py-8">
       <PageContainer size="narrow" className="flex flex-col gap-6">
-
-        {/* Cabeçalho */}
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="text-sm text-ink-soft">Categorias</p>
-            <p className="text-base font-semibold text-ink mt-0.5">{loja.nome}</p>
-          </div>
-          <Link href="/painel">
-            <Button variant="secondary">← Painel</Button>
-          </Link>
-        </div>
 
         {/* Formulário de adição */}
         <Card bodyClassName="p-6">
