@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { RefreshCw, ChevronDown, ChevronUp, Phone, MapPin, Volume2, VolumeX, MessageCircle } from 'lucide-react'
+import { RefreshCw, ChevronDown, ChevronUp, Phone, MapPin, Volume2, VolumeX, MessageCircle, ArrowRight, Ban } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { Button } from '@/components/ui/Button'
 import { StatusBadge, type OrderStatus } from '@/components/ui/StatusBadge'
@@ -109,6 +109,66 @@ function montarLinkWhatsApp(pedido: Pedido, nomeLoja: string): string {
   return `https://wa.me/${numero}?text=${encodeURIComponent(mensagens[pedido.status])}`
 }
 
+function idCurto(id: string): string {
+  return id.slice(0, 8).toUpperCase()
+}
+
+function resumoItens(itens: ItemPedido[] | undefined): string {
+  if (!itens || itens.length === 0) return ''
+  const partes = itens.map(i => `${formatarQtd(i.quantidade, i.unidade)}x ${i.nome_produto}`)
+  const MAX = 3
+  return partes.length <= MAX ? partes.join(', ') : `${partes.slice(0, MAX).join(', ')}…`
+}
+
+function minutosDesde(iso: string, agora: number): number {
+  return Math.max(0, Math.floor((agora - new Date(iso).getTime()) / 60000))
+}
+
+function tempoDecorrido(min: number): string {
+  if (min < 1) return 'agora mesmo'
+  if (min < 60) return `há ${min} min`
+  const h = Math.floor(min / 60)
+  const m = min % 60
+  return m ? `há ${h}h${String(m).padStart(2, '0')}` : `há ${h}h`
+}
+
+/* Faixa de urgência (só em pedidos ativos): <20min verde, 20–40 accent, >40 danger */
+function corUrgencia(min: number, status: OrderStatus): string {
+  if (status !== 'recebido' && status !== 'preparando') return ''
+  if (min > 40) return 'border-l-4 border-danger'
+  if (min >= 20) return 'border-l-4 border-accent'
+  return 'border-l-4 border-brand-500'
+}
+
+/* Botão de ação em ícone (tooltip nativo via title) */
+function AcaoIcone({
+  title, onClick, disabled, danger, children,
+}: {
+  title: string
+  onClick: () => void
+  disabled?: boolean
+  danger?: boolean
+  children: React.ReactNode
+}) {
+  return (
+    <button
+      type="button"
+      title={title}
+      aria-label={title}
+      onClick={onClick}
+      disabled={disabled}
+      className={[
+        'w-9 h-9 flex items-center justify-center rounded-full transition-colors duration-150',
+        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500',
+        'disabled:opacity-40 disabled:pointer-events-none',
+        danger ? 'text-danger hover:bg-danger/10' : 'text-brand-700 hover:bg-brand-50',
+      ].join(' ')}
+    >
+      {children}
+    </button>
+  )
+}
+
 /* ── Card de pedido ──────────────────────────────── */
 
 interface CardPedidoProps {
@@ -120,6 +180,7 @@ interface CardPedidoProps {
   novo: boolean
   nomeLoja: string
   whatsappRealcado: boolean
+  agora: number
   onToggle: () => void
   onAvancar: (novoStatus: OrderStatus) => void
   onIniciarCancelar: () => void
@@ -127,7 +188,7 @@ interface CardPedidoProps {
 
 function CardPedido({
   pedido, itens, loadingItens, expandido, atualizandoStatus, novo,
-  nomeLoja, whatsappRealcado,
+  nomeLoja, whatsappRealcado, agora,
   onToggle, onAvancar, onIniciarCancelar,
 }: CardPedidoProps) {
   const proximo = PROXIMO[pedido.status]
@@ -136,43 +197,101 @@ function CardPedido({
   const temTelefone = telefoneValido(pedido.telefone_cliente)
   const waLink = temTelefone ? montarLinkWhatsApp(pedido, nomeLoja) : undefined
 
+  const min = minutosDesde(pedido.criado_em, agora)
+  const resumo = resumoItens(itens)
+
   return (
     <div className={[
-      'rounded-xl overflow-hidden transition-all duration-700',
-      novo
-        ? 'bg-brand-100 shadow-md ring-2 ring-brand-300'
-        : 'bg-surface shadow-sm',
+      'rounded-xl overflow-hidden transition-shadow duration-200',
+      corUrgencia(min, pedido.status),
+      novo ? 'bg-brand-100 shadow-md ring-2 ring-brand-300' : 'bg-surface shadow-sm hover:shadow-md',
     ].join(' ')}>
-      {/* Cabeçalho clicável */}
+
+      {/* Resumo escaneável (clicável para expandir) */}
       <button
         onClick={onToggle}
-        className="w-full text-left px-4 pt-3 pb-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-inset"
+        aria-expanded={expandido}
+        className="w-full text-left px-4 pt-3 pb-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-inset"
       >
-        <div className="flex items-start justify-between gap-2 mb-1.5">
-          <p className="text-sm font-semibold text-ink leading-snug flex-1 min-w-0 truncate">
-            {pedido.nome_cliente}
-          </p>
-          {expandido
-            ? <ChevronUp size={14} strokeWidth={2} className="text-ink-mute mt-0.5 shrink-0" />
-            : <ChevronDown size={14} strokeWidth={2} className="text-ink-mute mt-0.5 shrink-0" />}
-        </div>
-
         <div className="flex items-center justify-between gap-2">
-          <p className="text-[15px] font-bold text-brand-700">
-            {formatarReal(pedido.total)}
-          </p>
+          <span className="text-sm font-bold text-ink">#{idCurto(pedido.id)}</span>
           <StatusBadge status={pedido.status} />
         </div>
 
-        <div className="flex items-center justify-between mt-1.5">
-          <p className="text-xs text-ink-mute">{formatarData(pedido.criado_em)}</p>
-          <p className="text-xs text-ink-soft">
-            {LABEL_PAGAMENTO[pedido.forma_pagamento] ?? pedido.forma_pagamento}
-          </p>
+        <p className="text-sm font-semibold text-ink mt-1.5 truncate">{pedido.nome_cliente}</p>
+
+        {resumo && (
+          <p className="text-xs text-ink-soft mt-0.5 leading-snug line-clamp-2">{resumo}</p>
+        )}
+
+        <p className="flex items-center gap-1 text-xs text-ink-mute mt-1">
+          <MapPin size={12} strokeWidth={1.75} className="shrink-0" />
+          <span className="truncate">{pedido.endereco_entrega}</span>
+        </p>
+
+        <div className="flex items-center justify-between gap-2 mt-2">
+          <span className="text-[15px] font-bold text-brand-700">{formatarReal(pedido.total)}</span>
+          <span className="text-xs text-ink-mute" title={formatarData(pedido.criado_em)}>
+            {tempoDecorrido(min)}
+          </span>
         </div>
       </button>
 
-      {/* Conteúdo expandido */}
+      {/* Ações em ícone (tooltip via title) */}
+      <div className="flex items-center gap-1 px-3 pb-2.5">
+        {podeAvancar && (
+          <AcaoIcone
+            title={proximo!.label}
+            onClick={() => onAvancar(proximo!.status)}
+            disabled={atualizandoStatus}
+          >
+            <ArrowRight size={16} strokeWidth={2} />
+          </AcaoIcone>
+        )}
+
+        <a
+          href={waLink ?? '#'}
+          target={waLink ? '_blank' : undefined}
+          rel="noopener noreferrer"
+          title={temTelefone ? LABEL_WHATSAPP[pedido.status] : 'Cliente sem telefone'}
+          aria-label={temTelefone ? LABEL_WHATSAPP[pedido.status] : 'Cliente sem telefone'}
+          aria-disabled={!temTelefone}
+          tabIndex={temTelefone ? 0 : -1}
+          onClick={!temTelefone ? (e) => e.preventDefault() : undefined}
+          className={[
+            'w-9 h-9 flex items-center justify-center rounded-full transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500',
+            whatsappRealcado
+              ? 'bg-brand-500 text-surface ring-2 ring-brand-200'
+              : temTelefone
+                ? 'text-brand-700 hover:bg-brand-50'
+                : 'text-ink-mute opacity-50 pointer-events-none',
+          ].join(' ')}
+        >
+          <MessageCircle size={16} strokeWidth={1.75} />
+        </a>
+
+        {podeCancelar && (
+          <AcaoIcone
+            title="Cancelar pedido"
+            onClick={onIniciarCancelar}
+            disabled={atualizandoStatus}
+            danger
+          >
+            <Ban size={16} strokeWidth={1.75} />
+          </AcaoIcone>
+        )}
+
+        <button
+          type="button"
+          onClick={onToggle}
+          aria-label={expandido ? 'Recolher detalhes' : 'Ver detalhes'}
+          className="ml-auto w-9 h-9 flex items-center justify-center rounded-full text-ink-mute hover:bg-brand-50 transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+        >
+          {expandido ? <ChevronUp size={16} strokeWidth={2} /> : <ChevronDown size={16} strokeWidth={2} />}
+        </button>
+      </div>
+
+      {/* Detalhes expandidos */}
       {expandido && (
         <div className="border-t border-line px-4 pb-4 pt-3 space-y-4">
 
@@ -187,13 +306,9 @@ function CardPedido({
                   <div key={i} className="flex justify-between items-baseline gap-2">
                     <span className="text-sm text-ink flex-1 min-w-0 truncate">
                       {item.nome_produto}
-                      <span className="text-ink-mute ml-1">
-                        × {formatarQtd(item.quantidade, item.unidade)}
-                      </span>
+                      <span className="text-ink-mute ml-1">× {formatarQtd(item.quantidade, item.unidade)}</span>
                     </span>
-                    <span className="text-sm font-medium text-ink shrink-0">
-                      {formatarReal(item.subtotal)}
-                    </span>
+                    <span className="text-sm font-medium text-ink shrink-0">{formatarReal(item.subtotal)}</span>
                   </div>
                 ))}
 
@@ -225,6 +340,12 @@ function CardPedido({
               <Phone size={13} strokeWidth={1.75} className="text-ink-mute shrink-0" />
               <p className="text-sm text-ink-soft">{pedido.telefone_cliente}</p>
             </div>
+            <div className="flex justify-between text-sm">
+              <span className="text-ink-soft">Pagamento</span>
+              <span className="text-ink font-medium">
+                {LABEL_PAGAMENTO[pedido.forma_pagamento] ?? pedido.forma_pagamento}
+              </span>
+            </div>
             {pedido.troco_para != null && (
               <p className="text-sm text-ink-soft">
                 <span className="font-medium text-ink">Troco para:</span>{' '}
@@ -237,53 +358,6 @@ function CardPedido({
               </p>
             )}
           </div>
-
-          {/* Botão WhatsApp */}
-          <a
-            href={waLink ?? '#'}
-            target={waLink ? '_blank' : undefined}
-            rel="noopener noreferrer"
-            aria-disabled={!temTelefone}
-            tabIndex={temTelefone ? 0 : -1}
-            onClick={!temTelefone ? (e) => e.preventDefault() : undefined}
-            className={[
-              'flex items-center justify-center gap-2 w-full min-h-[40px] rounded-xl text-xs font-semibold px-3 transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500',
-              whatsappRealcado
-                ? 'bg-brand-500 text-white shadow-md ring-2 ring-brand-200'
-                : temTelefone
-                  ? 'bg-surface border border-line text-brand-700 hover:bg-brand-50'
-                  : 'bg-line/60 text-ink-mute cursor-not-allowed opacity-60 pointer-events-none',
-            ].join(' ')}
-          >
-            <MessageCircle size={15} strokeWidth={1.75} />
-            {LABEL_WHATSAPP[pedido.status]}
-          </a>
-
-          {/* Botões de ação */}
-          {(podeAvancar || podeCancelar) && (
-            <div className="flex gap-2 pt-1">
-              {podeAvancar && (
-                <Button
-                  variant="primary"
-                  className="flex-1 !min-h-[40px] text-xs px-3"
-                  disabled={atualizandoStatus}
-                  onClick={() => onAvancar(proximo!.status)}
-                >
-                  {atualizandoStatus ? '…' : proximo!.label}
-                </Button>
-              )}
-              {podeCancelar && (
-                <Button
-                  variant="secondary"
-                  className="!min-h-[40px] text-xs px-3 text-danger border-danger/30 hover:bg-danger/10"
-                  disabled={atualizandoStatus}
-                  onClick={onIniciarCancelar}
-                >
-                  Cancelar
-                </Button>
-              )}
-            </div>
-          )}
         </div>
       )}
     </div>
@@ -303,6 +377,7 @@ interface KanbanColunaProps {
   novosIds: Set<string>
   nomeLoja: string
   whatsappRealcado: Set<string>
+  agora: number
   onToggle: (id: string) => void
   onAvancar: (id: string, status: OrderStatus) => void
   onIniciarCancelar: (id: string) => void
@@ -311,7 +386,7 @@ interface KanbanColunaProps {
 function KanbanColuna({
   titulo, corDot, pedidos,
   expandido, itensPorPedido, loadingItens, atualizandoStatus, novosIds,
-  nomeLoja, whatsappRealcado,
+  nomeLoja, whatsappRealcado, agora,
   onToggle, onAvancar, onIniciarCancelar,
 }: KanbanColunaProps) {
   return (
@@ -343,6 +418,7 @@ function KanbanColuna({
               novo={novosIds.has(p.id)}
               nomeLoja={nomeLoja}
               whatsappRealcado={whatsappRealcado.has(p.id)}
+              agora={agora}
               onToggle={() => onToggle(p.id)}
               onAvancar={status => onAvancar(p.id, status)}
               onIniciarCancelar={() => onIniciarCancelar(p.id)}
@@ -372,6 +448,13 @@ export default function PainelPedidos() {
   const [confirmCancelar, setConfirmCancelar] = useState<string | null>(null)
   const [novosIds, setNovosIds]               = useState<Set<string>>(new Set())
   const [whatsappRealcado, setWhatsappRealcado] = useState<Set<string>>(new Set())
+
+  /* Relógio para o "tempo decorrido" — atualiza a cada 30s */
+  const [agora, setAgora] = useState(() => Date.now())
+  useEffect(() => {
+    const t = setInterval(() => setAgora(Date.now()), 30_000)
+    return () => clearInterval(t)
+  }, [])
 
   /* ── Áudio ───────────────────────────────────────── */
   const audioCtxRef = useRef<AudioContext | null>(null)
@@ -432,7 +515,22 @@ export default function PainelPedidos() {
       .select('*')
       .eq('loja_id', id)
       .order('criado_em', { ascending: false })
-    if (data) setPedidos(data as Pedido[])
+    if (!data) return
+    setPedidos(data as Pedido[])
+
+    // Carrega os itens de todos os pedidos (para o resumo no card)
+    const ids = (data as Pedido[]).map(p => p.id)
+    if (ids.length > 0) {
+      const { data: itensData } = await supabase
+        .from('itens_pedido')
+        .select('*')
+        .in('pedido_id', ids)
+      const mapa: Record<string, ItemPedido[]> = {}
+      for (const it of (itensData as ItemPedido[] | null) ?? []) {
+        (mapa[it.pedido_id] ??= []).push(it)
+      }
+      setItensPorPedido(mapa)
+    }
   }, [])
 
   useEffect(() => {
@@ -669,6 +767,7 @@ export default function PainelPedidos() {
               novosIds={novosIds}
               nomeLoja={nomeLoja}
               whatsappRealcado={whatsappRealcado}
+              agora={agora}
               onToggle={handleToggle}
               onAvancar={handleAvancarStatus}
               onIniciarCancelar={id => setConfirmCancelar(id)}
