@@ -11,6 +11,8 @@ import { Card } from '@/components/ui/Card'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { PageContainer } from '@/components/ui/PageContainer'
 import { SectionTitle } from '@/components/ui/SectionTitle'
+import { Skeleton } from '@/components/ui/Skeleton'
+import { toast } from 'sonner'
 
 /* ── Tipos ─────────────────────────────────────────── */
 
@@ -118,14 +120,19 @@ export default function Categorias() {
         ? Math.max(...categorias.map((c) => c.ordem)) + 1
         : 0
 
-    await supabase.from('categorias').insert({
+    const { error } = await supabase.from('categorias').insert({
       loja_id: loja.id,
       nome: novaCategoria.trim(),
       ordem: proximaOrdem,
     })
 
-    setNovaCategoria('')
-    await buscarCategorias(loja.id)
+    if (error) {
+      toast.error('Não foi possível criar a categoria')
+    } else {
+      setNovaCategoria('')
+      await buscarCategorias(loja.id)
+      toast.success('Categoria criada')
+    }
     setAdicionando(false)
   }
 
@@ -141,14 +148,19 @@ export default function Categorias() {
 
     setSalvandoEdicao(true)
 
-    await supabase
+    const { error } = await supabase
       .from('categorias')
       .update({ nome: nomeEditando.trim() })
       .eq('id', cat.id)
 
     setEditandoId(null)
     setSalvandoEdicao(false)
-    await buscarCategorias(loja.id)
+    if (error) {
+      toast.error('Não foi possível salvar a categoria')
+    } else {
+      await buscarCategorias(loja.id)
+      toast.success('Categoria atualizada')
+    }
   }
 
   /* ── Excluir ────────────────────────────────────── */
@@ -159,8 +171,10 @@ export default function Categorias() {
       mensagem: `Excluir a categoria "${cat.nome}"?`,
       onConfirmar: async () => {
         setDialogo(null)
-        await supabase.from('categorias').delete().eq('id', cat.id)
+        const { error } = await supabase.from('categorias').delete().eq('id', cat.id)
+        if (error) { toast.error('Não foi possível excluir a categoria'); return }
         await buscarCategorias(loja.id)
+        toast.success('Categoria excluída')
       },
     })
   }
@@ -168,7 +182,26 @@ export default function Categorias() {
   /* ── Render ─────────────────────────────────────── */
 
   // Carregando
-  if (loja === undefined) return null
+  if (loja === undefined) {
+    return (
+      <main className="py-8">
+        <PageContainer size="narrow" className="flex flex-col gap-6">
+          <Skeleton className="h-7 w-40" />
+          <div className="flex flex-col gap-2">
+            {Array.from({ length: 5 }).map((_, i) => (
+              <div key={i} className="bg-surface rounded-lg shadow-sm px-4 py-3 flex items-center justify-between">
+                <div className="space-y-2">
+                  <Skeleton className="h-4 w-32" />
+                  <Skeleton className="h-3 w-20" />
+                </div>
+                <Skeleton className="h-8 w-16" />
+              </div>
+            ))}
+          </div>
+        </PageContainer>
+      </main>
+    )
+  }
 
   // Sem loja
   if (loja === null) {

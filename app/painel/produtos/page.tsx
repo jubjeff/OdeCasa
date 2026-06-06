@@ -11,6 +11,8 @@ import { Card } from '@/components/ui/Card'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { PageContainer } from '@/components/ui/PageContainer'
 import { SectionTitle } from '@/components/ui/SectionTitle'
+import { Skeleton } from '@/components/ui/Skeleton'
+import { toast } from 'sonner'
 
 /* ── Tipos ───────────────────────────────────────── */
 
@@ -601,6 +603,7 @@ export default function Produtos() {
   async function handleSalvo() {
     fecharForm()
     if (loja) await buscarProdutos(loja.id)
+    toast.success('Produto salvo')
   }
 
   async function toggleDisponivel(produto: Produto) {
@@ -610,7 +613,12 @@ export default function Produtos() {
       .from('produtos')
       .update({ disponivel: !produto.disponivel })
       .eq('id', produto.id)
-    if (error && loja) await buscarProdutos(loja.id)
+    if (error) {
+      toast.error('Não foi possível atualizar a disponibilidade')
+      if (loja) await buscarProdutos(loja.id)
+    } else {
+      toast.success(produto.disponivel ? 'Produto ocultado' : 'Produto disponível')
+    }
   }
 
   function excluir(produto: Produto) {
@@ -618,15 +626,37 @@ export default function Produtos() {
       mensagem: `Excluir o produto "${produto.nome}"?`,
       onConfirmar: async () => {
         setDialogo(null)
-        await supabase.from('produtos').delete().eq('id', produto.id)
+        const { error } = await supabase.from('produtos').delete().eq('id', produto.id)
+        if (error) { toast.error('Não foi possível excluir o produto'); return }
         if (loja) await buscarProdutos(loja.id)
+        toast.success('Produto excluído')
       },
     })
   }
 
   /* ── Render ─────────────────────────────────── */
 
-  if (loja === undefined) return null
+  if (loja === undefined) {
+    return (
+      <main className="py-8">
+        <PageContainer size="wide" className="flex flex-col gap-6">
+          <Skeleton className="h-7 w-40" />
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-4">
+            {Array.from({ length: 8 }).map((_, i) => (
+              <div key={i} className="bg-surface rounded-lg overflow-hidden shadow-sm">
+                <Skeleton className="aspect-square rounded-none" />
+                <div className="p-3 space-y-2">
+                  <Skeleton className="h-4 w-3/4" />
+                  <Skeleton className="h-3 w-1/2" />
+                  <Skeleton className="h-4 w-1/3" />
+                </div>
+              </div>
+            ))}
+          </div>
+        </PageContainer>
+      </main>
+    )
+  }
 
   if (loja === null) {
     return (

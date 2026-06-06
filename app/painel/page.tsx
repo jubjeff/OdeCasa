@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Card } from '@/components/ui/Card'
 import { PageContainer } from '@/components/ui/PageContainer'
+import { toast } from 'sonner'
 
 /* ── Tipos ─────────────────────────────────────────────── */
 
@@ -569,6 +570,7 @@ export default function Painel() {
   function handleSalvo(novaLoja: Loja) {
     setLoja(novaLoja)
     setEditando(false)
+    toast.success('Loja salva')
   }
 
   // Aguardando sessão e dados da loja

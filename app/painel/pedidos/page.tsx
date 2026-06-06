@@ -8,6 +8,8 @@ import { Button } from '@/components/ui/Button'
 import { StatusBadge, type OrderStatus } from '@/components/ui/StatusBadge'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { IconButton } from '@/components/ui/IconButton'
+import { Skeleton } from '@/components/ui/Skeleton'
+import { toast } from 'sonner'
 
 /* ── Tipos ───────────────────────────────────────── */
 
@@ -56,6 +58,14 @@ const LABEL_PAGAMENTO: Record<string, string> = {
   dinheiro:      'Dinheiro',
   pix:           'Pix',
   cartao_entrega:'Cartão na entrega',
+}
+
+const LABEL_STATUS: Record<OrderStatus, string> = {
+  recebido:    'Recebido',
+  preparando:  'Preparando',
+  saiu_entrega:'Saiu para entrega',
+  entregue:    'Entregue',
+  cancelado:   'Cancelado',
 }
 
 const LABEL_WHATSAPP: Record<OrderStatus, string> = {
@@ -667,12 +677,14 @@ export default function PainelPedidos() {
     if (error) {
       console.error('[OdeCasa] Erro ao atualizar status:', error)
       if (lojaId) carregarPedidos(lojaId) /* reverte em caso de falha */
+      toast.error('Não foi possível atualizar o pedido')
     } else {
       /* Realça o botão WhatsApp por 5 s para lembrar de avisar o cliente */
       setWhatsappRealcado(prev => { const s = new Set(prev); s.add(pedidoId); return s })
       setTimeout(() => {
         setWhatsappRealcado(prev => { const s = new Set(prev); s.delete(pedidoId); return s })
       }, 5000)
+      toast.success(`Pedido marcado como “${LABEL_STATUS[novoStatus]}”`)
     }
     setAtualizandoStatus(null)
   }
@@ -685,7 +697,24 @@ export default function PainelPedidos() {
 
   /* ── Estados de carregamento / erro ──────────────── */
 
-  if (lojaId === undefined || carregando) return null
+  if (lojaId === undefined || carregando) {
+    return (
+      <div className="flex gap-4 px-4 py-5 overflow-x-auto">
+        {Array.from({ length: 4 }).map((_, c) => (
+          <div key={c} className="w-72 shrink-0 flex flex-col gap-2">
+            <Skeleton className="h-5 w-32 mb-1" />
+            {Array.from({ length: 3 }).map((_, i) => (
+              <div key={i} className="bg-surface rounded-xl shadow-sm p-4 space-y-2">
+                <Skeleton className="h-4 w-24" />
+                <Skeleton className="h-3 w-32" />
+                <Skeleton className="h-4 w-20" />
+              </div>
+            ))}
+          </div>
+        ))}
+      </div>
+    )
+  }
 
   if (lojaId === null) {
     return (
