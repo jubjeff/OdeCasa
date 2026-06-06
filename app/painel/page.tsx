@@ -9,6 +9,8 @@ import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Card } from '@/components/ui/Card'
 import { PageContainer } from '@/components/ui/PageContainer'
+import { SectionTitle } from '@/components/ui/SectionTitle'
+import { StatusBadge, type OrderStatus } from '@/components/ui/StatusBadge'
 import { toast } from 'sonner'
 
 /* ── Tipos ─────────────────────────────────────────────── */
@@ -515,6 +517,92 @@ function LojaNoAr({ slug, origin }: { slug: string; origin: string }) {
   )
 }
 
+/* ── Dashboard (indicadores reais dos pedidos) ──────────── */
+
+interface PedidoDash {
+  id: string
+  total: number
+  status: OrderStatus
+  criado_em: string
+  nome_cliente: string
+}
+interface ItemVendido { nome: string; qtd: number }
+interface Kpis { pedidosHoje: number; faturamentoHoje: number; ticket: number | null; pendentes: number }
+
+function formatarHora(iso: string): string {
+  return new Date(iso).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+}
+
+function Dashboard({ kpis, recentes, maisVendidos }: {
+  kpis: Kpis
+  recentes: PedidoDash[]
+  maisVendidos: ItemVendido[]
+}) {
+  const cards = [
+    { label: 'Pedidos hoje',       valor: String(kpis.pedidosHoje) },
+    { label: 'Faturamento hoje',   valor: formatarReal(kpis.faturamentoHoje) },
+    { label: 'Ticket médio hoje',  valor: kpis.ticket == null ? '—' : formatarReal(kpis.ticket) },
+    { label: 'Pedidos pendentes',  valor: String(kpis.pendentes) },
+  ]
+
+  return (
+    <div className="flex flex-col gap-4">
+      {/* KPIs */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        {cards.map(c => (
+          <Card key={c.label} bodyClassName="p-4">
+            <p className="text-xs text-ink-soft leading-snug">{c.label}</p>
+            <p className="text-xl font-bold text-ink mt-1 leading-tight">{c.valor}</p>
+          </Card>
+        ))}
+      </div>
+
+      <div className="grid md:grid-cols-2 gap-4">
+        {/* Pedidos recentes */}
+        <Card bodyClassName="p-4">
+          <SectionTitle className="mb-3">Pedidos recentes</SectionTitle>
+          {recentes.length === 0 ? (
+            <p className="text-sm text-ink-mute py-4 text-center">Nenhum pedido ainda.</p>
+          ) : (
+            <div className="flex flex-col divide-y divide-line">
+              {recentes.map(p => (
+                <div key={p.id} className="flex items-center gap-2 py-2.5 first:pt-0 last:pb-0">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-ink truncate">{p.nome_cliente}</p>
+                    <p className="text-xs text-ink-mute">{formatarHora(p.criado_em)}</p>
+                  </div>
+                  <span className="text-sm font-semibold text-brand-700 shrink-0">{formatarReal(p.total)}</span>
+                  <StatusBadge status={p.status} />
+                </div>
+              ))}
+            </div>
+          )}
+        </Card>
+
+        {/* Mais vendidos */}
+        <Card bodyClassName="p-4">
+          <SectionTitle className="mb-3">Mais vendidos</SectionTitle>
+          {maisVendidos.length === 0 ? (
+            <p className="text-sm text-ink-mute py-4 text-center">Sem vendas ainda.</p>
+          ) : (
+            <div className="flex flex-col divide-y divide-line">
+              {maisVendidos.map((it, i) => (
+                <div key={i} className="flex items-center gap-2 py-2.5 first:pt-0 last:pb-0">
+                  <span className="text-xs font-bold text-brand-700 bg-brand-100 rounded-full w-5 h-5 flex items-center justify-center shrink-0">
+                    {i + 1}
+                  </span>
+                  <span className="flex-1 text-sm text-ink truncate">{it.nome}</span>
+                  <span className="text-sm font-semibold text-ink shrink-0">{it.qtd}x</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </Card>
+      </div>
+    </div>
+  )
+}
+
 /* ── Página ─────────────────────────────────────────────── */
 
 export default function Painel() {
@@ -528,6 +616,11 @@ export default function Painel() {
   const [temCategoria, setTemCategoria] = useState(false)
   const [temProduto, setTemProduto]     = useState(false)
   const [origin, setOrigin]             = useState('')
+
+  // Dashboard
+  const [kpis, setKpis] = useState<Kpis>({ pedidosHoje: 0, faturamentoHoje: 0, ticket: null, pendentes: 0 })
+  const [recentes, setRecentes] = useState<PedidoDash[]>([])
+  const [maisVendidos, setMaisVendidos] = useState<ItemVendido[]>([])
 
   useEffect(() => {
     setOrigin(window.location.origin)
@@ -559,6 +652,44 @@ export default function Painel() {
         ])
         setTemCategoria((catCount ?? 0) > 0)
         setTemProduto((prodCount ?? 0) > 0)
+
+        // Dashboard: KPIs, recentes e mais vendidos (só dados reais)
+        const { data: peds } = await supabase
+          .from('pedidos')
+          .select('id,total,status,criado_em,nome_cliente')
+          .eq('loja_id', lojaEncontrada.id)
+          .order('criado_em', { ascending: false })
+        const pedidos = (peds as PedidoDash[]) ?? []
+
+        const hoje = new Date().toDateString()
+        const doDia = pedidos.filter(p => new Date(p.criado_em).toDateString() === hoje)
+        const validosDia = doDia.filter(p => p.status !== 'cancelado')
+        const faturamento = validosDia.reduce((s, p) => s + Number(p.total), 0)
+        setKpis({
+          pedidosHoje: doDia.length,
+          faturamentoHoje: faturamento,
+          ticket: validosDia.length ? faturamento / validosDia.length : null,
+          pendentes: pedidos.filter(p => p.status === 'recebido').length,
+        })
+        setRecentes(pedidos.slice(0, 5))
+
+        const ids = pedidos.map(p => p.id)
+        if (ids.length > 0) {
+          const { data: itens } = await supabase
+            .from('itens_pedido')
+            .select('nome_produto,quantidade,pedido_id')
+            .in('pedido_id', ids)
+          const mapa: Record<string, number> = {}
+          for (const it of (itens as { nome_produto: string; quantidade: number }[] | null) ?? []) {
+            mapa[it.nome_produto] = (mapa[it.nome_produto] ?? 0) + Number(it.quantidade)
+          }
+          setMaisVendidos(
+            Object.entries(mapa)
+              .sort((a, b) => b[1] - a[1])
+              .slice(0, 5)
+              .map(([nome, qtd]) => ({ nome, qtd })),
+          )
+        }
       }
 
       setLoja(lojaEncontrada)
@@ -581,7 +712,12 @@ export default function Painel() {
 
   return (
     <main className="py-8">
-      <PageContainer size="narrow" className="flex flex-col gap-6">
+      <PageContainer size="reading" className="flex flex-col gap-6">
+
+        {/* Dashboard de indicadores (quando há loja) */}
+        {temLoja && (
+          <Dashboard kpis={kpis} recentes={recentes} maisVendidos={maisVendidos} />
+        )}
 
         {/* Onboarding: checklist enquanto incompleto; link permanente quando no ar */}
         {onboardingCompleto && loja ? (
