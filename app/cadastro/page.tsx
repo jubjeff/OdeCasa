@@ -25,7 +25,11 @@ export default function Cadastro() {
     const { error } = await supabase.auth.signUp({
       email,
       password: senha,
-      options: { data: { nome } },
+      options: {
+        data: { nome },
+        // Após confirmar o e-mail, loga e leva o dono direto ao painel
+        emailRedirectTo: `${window.location.origin}/auth/confirmado?redirect=${encodeURIComponent('/painel')}`,
+      },
     })
 
     if (error) {
@@ -33,7 +37,7 @@ export default function Cadastro() {
     } else {
       setMensagem({
         tipo: 'sucesso',
-        texto: 'Cadastro realizado! Verifique seu e-mail para confirmar a conta.',
+        texto: 'Cadastro realizado! Confirme pelo link no e-mail — você entra direto no painel.',
       })
     }
 
