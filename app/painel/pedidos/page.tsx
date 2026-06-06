@@ -10,6 +10,11 @@ import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { IconButton } from '@/components/ui/IconButton'
 import { Skeleton } from '@/components/ui/Skeleton'
 import { toast } from 'sonner'
+import {
+  DndContext, DragOverlay, useDraggable, useDroppable,
+  MouseSensor, TouchSensor, useSensor, useSensors, closestCorners,
+  type DragEndEvent,
+} from '@dnd-kit/core'
 
 /* ── Tipos ───────────────────────────────────────── */
 
@@ -374,9 +379,26 @@ function CardPedido({
   )
 }
 
+/* ── Wrapper arrastável ──────────────────────────── */
+
+function CardArrastavel({ id, status, children }: { id: string; status: OrderStatus; children: React.ReactNode }) {
+  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id, data: { status } })
+  return (
+    <div
+      ref={setNodeRef}
+      {...attributes}
+      {...listeners}
+      className={isDragging ? 'opacity-40' : 'cursor-grab active:cursor-grabbing'}
+    >
+      {children}
+    </div>
+  )
+}
+
 /* ── Coluna do kanban ────────────────────────────── */
 
 interface KanbanColunaProps {
+  status: OrderStatus
   titulo: string
   corDot: string
   pedidos: Pedido[]
@@ -394,11 +416,13 @@ interface KanbanColunaProps {
 }
 
 function KanbanColuna({
-  titulo, corDot, pedidos,
+  status, titulo, corDot, pedidos,
   expandido, itensPorPedido, loadingItens, atualizandoStatus, novosIds,
   nomeLoja, whatsappRealcado, agora,
   onToggle, onAvancar, onIniciarCancelar,
 }: KanbanColunaProps) {
+  const { setNodeRef, isOver } = useDroppable({ id: status })
+
   return (
     <div className="w-72 shrink-0 flex flex-col gap-2">
       {/* Cabeçalho da coluna */}
@@ -410,32 +434,39 @@ function KanbanColuna({
         </span>
       </div>
 
-      {/* Cards */}
-      {pedidos.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-line py-8 text-center">
-          <p className="text-xs text-ink-mute">Sem pedidos</p>
-        </div>
-      ) : (
-        <div className="flex flex-col gap-2">
-          {pedidos.map(p => (
-            <CardPedido
-              key={p.id}
-              pedido={p}
-              itens={itensPorPedido[p.id]}
-              loadingItens={!!loadingItens[p.id]}
-              expandido={expandido === p.id}
-              atualizandoStatus={atualizandoStatus === p.id}
-              novo={novosIds.has(p.id)}
-              nomeLoja={nomeLoja}
-              whatsappRealcado={whatsappRealcado.has(p.id)}
-              agora={agora}
-              onToggle={() => onToggle(p.id)}
-              onAvancar={status => onAvancar(p.id, status)}
-              onIniciarCancelar={() => onIniciarCancelar(p.id)}
-            />
-          ))}
-        </div>
-      )}
+      {/* Área droppable */}
+      <div
+        ref={setNodeRef}
+        className={[
+          'flex flex-col gap-2 rounded-xl min-h-[64px] transition-colors duration-150',
+          isOver ? 'ring-2 ring-brand-300 bg-brand-50/60 p-1' : '',
+        ].join(' ')}
+      >
+        {pedidos.length === 0 ? (
+          <div className="rounded-xl border border-dashed border-line py-8 text-center">
+            <p className="text-xs text-ink-mute">Sem pedidos</p>
+          </div>
+        ) : (
+          pedidos.map(p => (
+            <CardArrastavel key={p.id} id={p.id} status={p.status}>
+              <CardPedido
+                pedido={p}
+                itens={itensPorPedido[p.id]}
+                loadingItens={!!loadingItens[p.id]}
+                expandido={expandido === p.id}
+                atualizandoStatus={atualizandoStatus === p.id}
+                novo={novosIds.has(p.id)}
+                nomeLoja={nomeLoja}
+                whatsappRealcado={whatsappRealcado.has(p.id)}
+                agora={agora}
+                onToggle={() => onToggle(p.id)}
+                onAvancar={status => onAvancar(p.id, status)}
+                onIniciarCancelar={() => onIniciarCancelar(p.id)}
+              />
+            </CardArrastavel>
+          ))
+        )}
+      </div>
     </div>
   )
 }
@@ -458,6 +489,13 @@ export default function PainelPedidos() {
   const [confirmCancelar, setConfirmCancelar] = useState<string | null>(null)
   const [novosIds, setNovosIds]               = useState<Set<string>>(new Set())
   const [whatsappRealcado, setWhatsappRealcado] = useState<Set<string>>(new Set())
+
+  /* Drag-and-drop entre colunas */
+  const [arrastandoId, setArrastandoId] = useState<string | null>(null)
+  const sensors = useSensors(
+    useSensor(MouseSensor, { activationConstraint: { distance: 8 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 250, tolerance: 8 } }),
+  )
 
   /* Relógio para o "tempo decorrido" — atualiza a cada 30s */
   const [agora, setAgora] = useState(() => Date.now())
@@ -664,7 +702,7 @@ export default function PainelPedidos() {
     }
   }
 
-  async function handleAvancarStatus(pedidoId: string, novoStatus: OrderStatus) {
+  async function handleAvancarStatus(pedidoId: string, novoStatus: OrderStatus, mensagemSucesso?: string) {
     setAtualizandoStatus(pedidoId)
     /* Atualização otimista — move o card imediatamente */
     setPedidos(prev => prev.map(p => p.id === pedidoId ? { ...p, status: novoStatus } : p))
@@ -684,7 +722,7 @@ export default function PainelPedidos() {
       setTimeout(() => {
         setWhatsappRealcado(prev => { const s = new Set(prev); s.delete(pedidoId); return s })
       }, 5000)
-      toast.success(`Pedido marcado como “${LABEL_STATUS[novoStatus]}”`)
+      toast.success(mensagemSucesso ?? `Pedido marcado como “${LABEL_STATUS[novoStatus]}”`)
     }
     setAtualizandoStatus(null)
   }
@@ -694,6 +732,21 @@ export default function PainelPedidos() {
     setConfirmCancelar(null)
     if (id) await handleAvancarStatus(id, 'cancelado')
   }
+
+  function handleDragEnd(e: DragEndEvent) {
+    setArrastandoId(null)
+    const { active, over } = e
+    if (!over) return
+    const pedidoId = String(active.id)
+    const origem = active.data.current?.status as OrderStatus | undefined
+    const destino = over.id as OrderStatus
+    if (!destino || destino === origem) return
+    // Cancelar continua passando pelo modal de confirmação
+    if (destino === 'cancelado') { setConfirmCancelar(pedidoId); return }
+    handleAvancarStatus(pedidoId, destino, `Pedido #${idCurto(pedidoId)} movido para “${LABEL_STATUS[destino]}”`)
+  }
+
+  const pedidoArrastado = arrastandoId ? pedidos.find(p => p.id === arrastandoId) : null
 
   /* ── Estados de carregamento / erro ──────────────── */
 
@@ -780,30 +833,53 @@ export default function PainelPedidos() {
         </div>
       )}
 
-      {/* Kanban — rolagem horizontal */}
-      <div className="flex-1 overflow-x-auto">
-        <div className="flex gap-4 px-4 py-5 pb-10 min-w-max">
-          {COLUNAS.map(col => (
-            <KanbanColuna
-              key={col.status}
-              titulo={col.titulo}
-              corDot={col.corDot}
-              pedidos={pedidos.filter(p => p.status === col.status)}
-              expandido={expandido}
-              itensPorPedido={itensPorPedido}
-              loadingItens={loadingItens}
-              atualizandoStatus={atualizandoStatus}
-              novosIds={novosIds}
-              nomeLoja={nomeLoja}
-              whatsappRealcado={whatsappRealcado}
-              agora={agora}
-              onToggle={handleToggle}
-              onAvancar={handleAvancarStatus}
-              onIniciarCancelar={id => setConfirmCancelar(id)}
-            />
-          ))}
+      {/* Kanban — rolagem horizontal com drag-and-drop */}
+      <DndContext
+        sensors={sensors}
+        collisionDetection={closestCorners}
+        onDragStart={e => setArrastandoId(String(e.active.id))}
+        onDragCancel={() => setArrastandoId(null)}
+        onDragEnd={handleDragEnd}
+      >
+        <div className="flex-1 overflow-x-auto">
+          <div className="flex gap-4 px-4 py-5 pb-10 min-w-max">
+            {COLUNAS.map(col => (
+              <KanbanColuna
+                key={col.status}
+                status={col.status}
+                titulo={col.titulo}
+                corDot={col.corDot}
+                pedidos={pedidos.filter(p => p.status === col.status)}
+                expandido={expandido}
+                itensPorPedido={itensPorPedido}
+                loadingItens={loadingItens}
+                atualizandoStatus={atualizandoStatus}
+                novosIds={novosIds}
+                nomeLoja={nomeLoja}
+                whatsappRealcado={whatsappRealcado}
+                agora={agora}
+                onToggle={handleToggle}
+                onAvancar={handleAvancarStatus}
+                onIniciarCancelar={id => setConfirmCancelar(id)}
+              />
+            ))}
+          </div>
         </div>
-      </div>
+
+        {/* Prévia semitransparente durante o arraste */}
+        <DragOverlay>
+          {pedidoArrastado ? (
+            <div className="w-72 bg-surface rounded-xl shadow-lg ring-2 ring-brand-300 p-4 rotate-1">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-sm font-bold text-ink">#{idCurto(pedidoArrastado.id)}</span>
+                <StatusBadge status={pedidoArrastado.status} />
+              </div>
+              <p className="text-sm font-semibold text-ink mt-1.5 truncate">{pedidoArrastado.nome_cliente}</p>
+              <p className="text-[15px] font-bold text-brand-700 mt-1">{formatarReal(pedidoArrastado.total)}</p>
+            </div>
+          ) : null}
+        </DragOverlay>
+      </DndContext>
 
       {/* Diálogo de confirmação de cancelamento */}
       {confirmCancelar && (
