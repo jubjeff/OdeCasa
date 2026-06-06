@@ -25,7 +25,8 @@ export default function PainelLayout({ children }: { children: React.ReactNode }
 
   const [email, setEmail]         = useState('')
   const [recebidos, setRecebidos] = useState(0)
-  const [drawerAberto, setDrawerAberto] = useState(false)
+  const [drawerAberto, setDrawerAberto]   = useState(false) // mobile (overlay)
+  const [desktopAberto, setDesktopAberto] = useState(true)  // desktop (sidebar fixa)
 
   /* Email do dono + contagem de pedidos 'recebido' (badge) */
   useEffect(() => {
@@ -122,8 +123,13 @@ export default function PainelLayout({ children }: { children: React.ReactNode }
   return (
     <div className="min-h-screen bg-bg flex">
 
-      {/* Sidebar fixa (desktop) */}
-      <aside className="hidden md:flex w-60 shrink-0 flex-col border-r border-line bg-surface sticky top-0 h-screen">
+      {/* Sidebar fixa (desktop) — recolhível pelo hambúrguer */}
+      <aside
+        className={[
+          'w-60 shrink-0 flex-col border-r border-line bg-surface sticky top-0 h-screen',
+          desktopAberto ? 'hidden md:flex' : 'hidden',
+        ].join(' ')}
+      >
         {sidebarInner}
       </aside>
 
@@ -143,10 +149,21 @@ export default function PainelLayout({ children }: { children: React.ReactNode }
         {/* Header do conteúdo */}
         <header className="sticky top-0 z-30 bg-surface border-b border-line">
           <div className="h-14 px-4 flex items-center gap-3">
+            {/* Hambúrguer mobile: abre o drawer */}
             <button
               onClick={() => setDrawerAberto(true)}
               aria-label="Abrir menu"
               className="md:hidden w-10 h-10 flex items-center justify-center rounded-full hover:bg-brand-50 transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 shrink-0"
+            >
+              <Menu size={20} strokeWidth={1.75} className="text-ink" />
+            </button>
+
+            {/* Hambúrguer desktop: recolhe/abre a sidebar fixa */}
+            <button
+              onClick={() => setDesktopAberto(o => !o)}
+              aria-label={desktopAberto ? 'Recolher menu' : 'Abrir menu'}
+              aria-expanded={desktopAberto}
+              className="hidden md:flex w-10 h-10 items-center justify-center rounded-full hover:bg-brand-50 transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 shrink-0"
             >
               <Menu size={20} strokeWidth={1.75} className="text-ink" />
             </button>
