@@ -2,11 +2,12 @@
 
 import { useEffect, useReducer, useRef, useState } from 'react'
 import Link from 'next/link'
-import { useParams } from 'next/navigation'
+import { useParams, useRouter } from 'next/navigation'
 import {
   ShoppingCart, MapPin, Truck, ImageIcon, ShoppingBag, SearchX, Search,
-  Minus, Plus, X, AlertCircle, ArrowLeft, CheckCircle2, Copy, Check, User,
+  Minus, Plus, X, AlertCircle, ArrowLeft, CheckCircle2, Copy, Check, User, Bell,
 } from 'lucide-react'
+import { toast } from 'sonner'
 import { supabase } from '@/lib/supabase'
 import { Card } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
@@ -15,6 +16,7 @@ import { TopBar } from '@/components/ui/TopBar'
 import { PageContainer } from '@/components/ui/PageContainer'
 import { SectionTitle } from '@/components/ui/SectionTitle'
 import { Chip } from '@/components/ui/Chip'
+import { NotificationBell } from '@/components/ui/NotificationBell'
 
 /* ── Tipos ───────────────────────────────────────── */
 
@@ -996,11 +998,29 @@ function TelaCheckout({
 interface TelaConfirmacaoProps {
   pedido: PedidoConfirmado
   loja: Loja
+  cliente: Cliente | null
   onVoltarLoja: () => void
 }
 
-function TelaConfirmacao({ pedido, loja, onVoltarLoja }: TelaConfirmacaoProps) {
+function TelaConfirmacao({ pedido, loja, cliente, onVoltarLoja }: TelaConfirmacaoProps) {
+  const router = useRouter()
   const idCurto = pedido.id.slice(0, 8).toUpperCase()
+
+  // Convidado: convite para criar conta e acompanhar os pedidos
+  const [mostrarConvite, setMostrarConvite] = useState(!cliente)
+
+  // Cliente logado: lembra que dá pra acompanhar o status em Minha conta
+  const avisou = useRef(false)
+  useEffect(() => {
+    if (!cliente || avisou.current) return
+    avisou.current = true
+    toast('Acompanhe seu pedido em Minha conta', {
+      description: 'O status atualiza em tempo real por lá.',
+      icon: <Bell size={18} strokeWidth={1.75} />,
+      duration: 6000,
+      action: { label: 'Ver', onClick: () => router.push('/conta') },
+    })
+  }, [cliente, router])
 
   return (
     <div className="fixed inset-0 z-50 bg-bg flex flex-col overflow-y-auto">
@@ -1082,6 +1102,57 @@ function TelaConfirmacao({ pedido, loja, onVoltarLoja }: TelaConfirmacaoProps) {
           Voltar à loja
         </Button>
       </div>
+
+      {/* Convidado: convite para criar conta e acompanhar os pedidos */}
+      {mostrarConvite && (
+        <div
+          className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center bg-ink/40 px-4 py-6"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="convite-titulo"
+          onClick={() => setMostrarConvite(false)}
+        >
+          <div
+            className="w-full max-w-sm bg-surface rounded-xl shadow-lg p-6 relative"
+            onClick={e => e.stopPropagation()}
+          >
+            <button
+              onClick={() => setMostrarConvite(false)}
+              aria-label="Fechar"
+              className="absolute top-3 right-3 w-9 h-9 flex items-center justify-center rounded-full text-ink-mute hover:bg-brand-50 transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+            >
+              <X size={18} strokeWidth={1.75} />
+            </button>
+
+            <div className="w-12 h-12 rounded-full bg-brand-100 flex items-center justify-center mb-4">
+              <Bell size={22} strokeWidth={1.75} className="text-brand-600" />
+            </div>
+
+            <h2 id="convite-titulo" className="text-[18px] font-semibold text-ink">
+              Acompanhe seu pedido
+            </h2>
+            <p className="text-sm text-ink-soft mt-1.5 leading-relaxed">
+              Crie sua conta para acompanhar o status dos seus pedidos em tempo real,
+              direto em Minha conta.
+            </p>
+
+            <div className="flex flex-col gap-2 mt-5">
+              <Link
+                href={`/criar-conta?redirect=${encodeURIComponent('/conta')}`}
+                className="inline-flex items-center justify-center gap-2 min-h-[48px] px-5 rounded-md font-semibold text-sm bg-brand-500 text-surface hover:bg-brand-600 active:scale-[0.98] shadow-sm transition-all duration-150 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+              >
+                Criar conta
+              </Link>
+              <button
+                onClick={() => setMostrarConvite(false)}
+                className="inline-flex items-center justify-center min-h-[44px] px-5 rounded-md font-semibold text-sm text-brand-700 hover:bg-brand-50 active:scale-[0.98] transition-all duration-150 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+              >
+                Agora não
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -1299,6 +1370,9 @@ export default function PaginaLoja() {
         }
         right={
           <>
+            {/* Sininho de notificações (aparece só para cliente logado) */}
+            <NotificationBell />
+
             {/* Conta do cliente: Entrar quando deslogado, Minha conta quando logado */}
             {cliente ? (
               <Link
@@ -1479,6 +1553,7 @@ export default function PaginaLoja() {
         <TelaConfirmacao
           pedido={pedidoConfirmado}
           loja={loja}
+          cliente={cliente}
           onVoltarLoja={handleVoltarLoja}
         />
       )}

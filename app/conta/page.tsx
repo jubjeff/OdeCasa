@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import {
   ArrowLeft, MapPin, Plus, Pencil, Trash2, Star, LogOut,
-  ChevronDown, ChevronUp, ShoppingBag, Repeat,
+  ChevronDown, ChevronUp, ShoppingBag, Repeat, Check, XCircle,
 } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { Button } from '@/components/ui/Button'
@@ -15,6 +15,7 @@ import { TopBar } from '@/components/ui/TopBar'
 import { PageContainer } from '@/components/ui/PageContainer'
 import { SectionTitle } from '@/components/ui/SectionTitle'
 import { IconButton } from '@/components/ui/IconButton'
+import { NotificationBell } from '@/components/ui/NotificationBell'
 
 /* ── Tipos ───────────────────────────────────────── */
 
@@ -99,6 +100,96 @@ const LABEL_PAGAMENTO: Record<string, string> = {
   dinheiro: 'Dinheiro', pix: 'Pix', cartao_entrega: 'Cartão na entrega',
 }
 
+/* ── Stepper de status do pedido ──────────────────── */
+
+const FLUXO: { key: OrderStatus; label: string }[] = [
+  { key: 'recebido',     label: 'Recebido' },
+  { key: 'preparando',   label: 'Preparando' },
+  { key: 'saiu_entrega', label: 'Saiu p/ entrega' },
+  { key: 'entregue',     label: 'Entregue' },
+]
+
+// Cor da etapa ATUAL (tokens de status do design system)
+const ETAPA_ATIVA: Record<string, string> = {
+  recebido:     'bg-ink-soft',
+  preparando:   'bg-accent',
+  saiu_entrega: 'bg-brand-300',
+  entregue:     'bg-brand-500',
+}
+const ETAPA_ANEL: Record<string, string> = {
+  recebido:     'ring-ink-soft/15',
+  preparando:   'ring-accent/20',
+  saiu_entrega: 'ring-brand-300/25',
+  entregue:     'ring-brand-500/20',
+}
+
+function StatusStepper({ status }: { status: OrderStatus }) {
+  // Pedido cancelado: estado próprio, fora do fluxo normal
+  if (status === 'cancelado') {
+    return (
+      <div className="flex items-center gap-2 rounded-md bg-danger/10 px-3 py-2.5">
+        <XCircle size={16} strokeWidth={2} className="text-danger shrink-0" />
+        <span className="text-sm font-medium text-danger">Pedido cancelado</span>
+      </div>
+    )
+  }
+
+  const atual = FLUXO.findIndex(s => s.key === status)
+
+  return (
+    <div className="flex">
+      {FLUXO.map((step, i) => {
+        const concluido = i < atual
+        const ativo = i === atual
+        return (
+          <div key={step.key} className="flex-1 flex flex-col items-center relative">
+            {/* Conector ligando ao passo anterior */}
+            {i > 0 && (
+              <span
+                aria-hidden="true"
+                className={[
+                  'absolute top-[11px] left-[-50%] right-1/2 h-0.5',
+                  i <= atual ? 'bg-brand-300' : 'bg-line',
+                ].join(' ')}
+              />
+            )}
+
+            {/* Bolinha da etapa */}
+            <span
+              className={[
+                'relative z-10 w-6 h-6 rounded-full flex items-center justify-center transition-colors duration-200',
+                concluido
+                  ? 'bg-brand-500 text-surface'
+                  : ativo
+                    ? `${ETAPA_ATIVA[step.key]} text-surface ring-4 ${ETAPA_ANEL[step.key]}`
+                    : 'bg-surface border border-line',
+              ].join(' ')}
+            >
+              {concluido ? (
+                <Check size={13} strokeWidth={3} />
+              ) : ativo ? (
+                <span className="w-2 h-2 rounded-full bg-surface" />
+              ) : (
+                <span className="w-1.5 h-1.5 rounded-full bg-line" />
+              )}
+            </span>
+
+            {/* Rótulo */}
+            <span
+              className={[
+                'mt-2 text-[11px] leading-tight text-center px-0.5',
+                ativo ? 'font-semibold text-ink' : concluido ? 'text-ink-soft' : 'text-ink-mute',
+              ].join(' ')}
+            >
+              {step.label}
+            </span>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
 /* ── Card de pedido (histórico) ───────────────────── */
 
 interface PedidoCardProps {
@@ -134,6 +225,12 @@ function PedidoCard({ pedido, itens, loadingItens, expandido, onToggle }: Pedido
 
       {expandido && (
         <div className="border-t border-line px-4 pb-4 pt-3 space-y-4">
+          {/* Acompanhamento do pedido */}
+          <div>
+            <p className="text-xs font-semibold text-ink-soft mb-3">Acompanhamento</p>
+            <StatusStepper status={pedido.status} />
+          </div>
+
           {/* Itens */}
           <div>
             <p className="text-xs font-semibold text-ink-soft mb-2">Itens</p>
@@ -279,6 +376,13 @@ export default function ContaCliente() {
   const [itensPorPedido, setItensPorPedido] = useState<Record<string, ItemPedido[]>>({})
   const [loadingItens, setLoadingItens] = useState<Record<string, boolean>>({})
 
+  // Aplica o status mais novo de um pedido (sem mexer no resto)
+  const aplicarStatus = useCallback((id: string, status: OrderStatus) => {
+    setPedidos(prev =>
+      prev.map(p => (p.id === id && p.status !== status ? { ...p, status } : p)),
+    )
+  }, [])
+
   const carregarEnderecos = useCallback(async (clienteId: string) => {
     const { data } = await supabase
       .from('enderecos')
@@ -328,6 +432,50 @@ export default function ContaCliente() {
     }
     init()
   }, [router, carregarEnderecos, carregarPedidos])
+
+  // Acompanhamento em tempo real: escuta mudanças nos pedidos do próprio cliente.
+  useEffect(() => {
+    if (!cliente) return
+
+    const canal = supabase
+      .channel(`pedidos-cliente-${cliente.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'pedidos',
+          filter: `cliente_id=eq.${cliente.id}`,
+        },
+        payload => {
+          const novo = payload.new as { id: string; status: OrderStatus }
+          aplicarStatus(novo.id, novo.status)
+        },
+      )
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(canal)
+    }
+  }, [cliente, aplicarStatus])
+
+  // Reforço: polling leve (id + status) a cada 20s, caso o realtime não esteja ativo.
+  useEffect(() => {
+    if (!cliente) return
+
+    const id = setInterval(async () => {
+      const { data } = await supabase
+        .from('pedidos')
+        .select('id,status')
+        .eq('cliente_id', cliente.id)
+      if (!data) return
+      for (const p of data as { id: string; status: OrderStatus }[]) {
+        aplicarStatus(p.id, p.status)
+      }
+    }, 20000)
+
+    return () => clearInterval(id)
+  }, [cliente, aplicarStatus])
 
   async function handleTogglePedido(id: string) {
     const abrindo = expandidoPedido !== id
@@ -406,13 +554,16 @@ export default function ContaCliente() {
         }
         title="Minha conta"
         right={
-          <button
-            onClick={handleSair}
-            className="inline-flex items-center gap-1.5 text-sm font-medium text-danger hover:text-danger/80 transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 rounded px-2 py-1"
-          >
-            <LogOut size={16} strokeWidth={1.75} />
-            Sair
-          </button>
+          <>
+            <NotificationBell />
+            <button
+              onClick={handleSair}
+              className="inline-flex items-center gap-1.5 text-sm font-medium text-danger hover:text-danger/80 transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 rounded px-2 py-1"
+            >
+              <LogOut size={16} strokeWidth={1.75} />
+              Sair
+            </button>
+          </>
         }
       />
 

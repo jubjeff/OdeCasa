@@ -5,6 +5,7 @@ import Image from 'next/image'
 import Link from 'next/link'
 import { Search, MapPin, Truck, Store, SearchX, ChevronDown } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
+import { NotificationBell } from '@/components/ui/NotificationBell'
 
 /* ── Tipos ───────────────────────────────────────── */
 
@@ -150,6 +151,11 @@ export default function HubLojas() {
               <span className="font-medium text-ink">Recife</span>
               <ChevronDown size={14} strokeWidth={1.75} className="text-ink-mute" />
             </button>
+
+            {/* Sininho de notificações (aparece só para cliente logado) */}
+            <div className="ml-auto">
+              <NotificationBell />
+            </div>
           </div>
 
           {/* Busca */}
