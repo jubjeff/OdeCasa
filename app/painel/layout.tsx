@@ -23,7 +23,7 @@ export default function PainelLayout({ children }: { children: React.ReactNode }
   const pathname = usePathname()
   const router = useRouter()
 
-  const [email, setEmail]         = useState('')
+  const [nomeLoja, setNomeLoja]   = useState('')
   const [recebidos, setRecebidos] = useState(0)
   const [drawerAberto, setDrawerAberto]   = useState(false) // mobile (overlay)
   const [desktopAberto, setDesktopAberto] = useState(true)  // desktop (sidebar fixa)
@@ -34,13 +34,14 @@ export default function PainelLayout({ children }: { children: React.ReactNode }
     async function carregar() {
       const { data: { user } } = await supabase.auth.getUser()
       if (!ativo || !user) return
-      setEmail(user.email ?? '')
 
       const { data: loja } = await supabase
         .from('lojas')
-        .select('id')
+        .select('id, nome')
         .eq('dono_id', user.id)
         .maybeSingle()
+
+      if (ativo) setNomeLoja(loja?.nome ?? '')
 
       if (loja?.id && ativo) {
         const { count } = await supabase
@@ -170,9 +171,9 @@ export default function PainelLayout({ children }: { children: React.ReactNode }
 
             <h1 className="text-base font-semibold text-ink flex-1 truncate">{titulo}</h1>
 
-            {email && (
-              <span className="hidden sm:block text-sm text-ink-soft truncate max-w-[200px]">
-                {email}
+            {nomeLoja && (
+              <span className="hidden sm:block text-sm font-medium text-ink truncate max-w-[200px]">
+                {nomeLoja}
               </span>
             )}
             <button

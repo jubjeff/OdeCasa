@@ -185,16 +185,13 @@ export default function Categorias() {
   if (loja === undefined) {
     return (
       <main className="py-8">
-        <PageContainer size="narrow" className="flex flex-col gap-6">
+        <PageContainer size="wide" className="flex flex-col gap-6">
           <Skeleton className="h-7 w-40" />
-          <div className="flex flex-col gap-2">
-            {Array.from({ length: 5 }).map((_, i) => (
-              <div key={i} className="bg-surface rounded-lg shadow-sm px-4 py-3 flex items-center justify-between">
-                <div className="space-y-2">
-                  <Skeleton className="h-4 w-32" />
-                  <Skeleton className="h-3 w-20" />
-                </div>
-                <Skeleton className="h-8 w-16" />
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-4">
+            {Array.from({ length: 8 }).map((_, i) => (
+              <div key={i} className="bg-surface rounded-lg shadow-sm px-4 py-3 space-y-2">
+                <Skeleton className="h-4 w-3/4" />
+                <Skeleton className="h-3 w-1/2" />
               </div>
             ))}
           </div>
@@ -225,7 +222,7 @@ export default function Categorias() {
   return (
     <>
     <main className="py-8">
-      <PageContainer size="narrow" className="flex flex-col gap-6">
+      <PageContainer size="wide" className="flex flex-col gap-6">
 
         {/* Topo: título + Nova categoria */}
         <SectionTitle
@@ -272,32 +269,32 @@ export default function Categorias() {
             <Button onClick={() => setMostrarForm(true)}>Criar primeira categoria</Button>
           </Card>
         ) : (
-          <div className="flex flex-col gap-2">
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-4">
             {categorias.map((cat) => {
               const qtd = contagem[cat.id] ?? 0
               return (
                 <Card key={cat.id} bodyClassName="px-4 py-3">
                   {editandoId === cat.id ? (
                     /* Modo edição */
-                    <div className="flex gap-2 items-center">
-                      <div className="flex-1">
-                        <Input
-                          id={`edit-${cat.id}`}
-                          value={nomeEditando}
-                          onChange={(e) => setNomeEditando(e.target.value)}
-                          autoFocus
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter') { e.preventDefault(); salvarEdicao(cat) }
-                            if (e.key === 'Escape') setEditandoId(null)
-                          }}
-                        />
+                    <div className="space-y-2">
+                      <Input
+                        id={`edit-${cat.id}`}
+                        value={nomeEditando}
+                        onChange={(e) => setNomeEditando(e.target.value)}
+                        autoFocus
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') { e.preventDefault(); salvarEdicao(cat) }
+                          if (e.key === 'Escape') setEditandoId(null)
+                        }}
+                      />
+                      <div className="flex gap-2">
+                        <Button onClick={() => salvarEdicao(cat)} disabled={salvandoEdicao} className="flex-1 !min-h-[40px] px-3 text-sm">
+                          Salvar
+                        </Button>
+                        <Button variant="secondary" onClick={() => setEditandoId(null)} className="!min-h-[40px] px-3 text-sm">
+                          Cancelar
+                        </Button>
                       </div>
-                      <Button onClick={() => salvarEdicao(cat)} disabled={salvandoEdicao} className="!min-h-[40px] px-3 text-sm">
-                        Salvar
-                      </Button>
-                      <Button variant="secondary" onClick={() => setEditandoId(null)} className="!min-h-[40px] px-3 text-sm">
-                        Cancelar
-                      </Button>
                     </div>
                   ) : (
                     /* Modo visualização */
