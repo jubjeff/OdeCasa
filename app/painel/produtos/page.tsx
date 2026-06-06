@@ -3,14 +3,14 @@
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { ImageIcon } from 'lucide-react'
+import { ImageIcon, Pencil, Trash2, Plus } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Card } from '@/components/ui/Card'
-import { StatusBadge } from '@/components/ui/StatusBadge'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { PageContainer } from '@/components/ui/PageContainer'
+import { SectionTitle } from '@/components/ui/SectionTitle'
 
 /* ── Tipos ───────────────────────────────────────── */
 
@@ -79,6 +79,15 @@ function formatarReal(valor: number): string {
 
 function labelUnidade(un: string): string {
   return UNIDADES.find(u => u.value === un)?.label ?? un
+}
+
+/* Badge de estoque — só quando controla_estoque = true */
+function badgeEstoque(produto: Produto): { label: string; cls: string } | null {
+  if (!produto.controla_estoque) return null
+  const e = produto.estoque ?? 0
+  if (e <= 0) return { label: 'Fora de estoque', cls: 'bg-danger/15 text-danger' }
+  if (e < 5)  return { label: 'Estoque baixo',   cls: 'bg-accent/15 text-accent' }
+  return { label: 'Em estoque', cls: 'bg-brand-100 text-brand-700' }
 }
 
 function produtoParaForm(p: Produto): FormValues {
@@ -411,42 +420,71 @@ interface ProdutoCardProps {
   categoriaNome: string | undefined
   onEditar: () => void
   onExcluir: () => void
+  onToggleDisponivel: () => void
 }
 
-function ProdutoCard({ produto, categoriaNome, onEditar, onExcluir }: ProdutoCardProps) {
+function ProdutoCard({ produto, categoriaNome, onEditar, onExcluir, onToggleDisponivel }: ProdutoCardProps) {
+  const estoque = badgeEstoque(produto)
+
   return (
-    <Card bodyClassName="p-0">
-      {/* Foto 4:3 — placeholder discreto quando não há imagem */}
-      <div className="aspect-[4/3] overflow-hidden bg-brand-50">
+    <Card bodyClassName="p-0" className="flex flex-col">
+      {/* Foto quadrada — placeholder verde quando não há imagem */}
+      <div className="relative aspect-square overflow-hidden bg-brand-50">
         {produto.foto_url ? (
-          <img
-            src={produto.foto_url}
-            alt={produto.nome}
-            className="w-full h-full object-cover"
-          />
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={produto.foto_url} alt={produto.nome} className="w-full h-full object-cover" />
         ) : (
           <div className="w-full h-full flex items-center justify-center">
             <ImageIcon size={36} strokeWidth={1.25} className="text-brand-200" />
           </div>
         )}
+
+        {/* Badge de estoque sobre a foto */}
+        {estoque && (
+          <span className={`absolute top-2 left-2 text-[11px] font-semibold rounded-full px-2 py-0.5 ${estoque.cls}`}>
+            {estoque.label}
+          </span>
+        )}
       </div>
 
       {/* Conteúdo */}
-      <div className="p-4">
-        {/* Nome + badge */}
-        <div className="flex items-start justify-between gap-3">
-          <p className="text-base font-semibold text-ink leading-snug flex-1">
+      <div className="p-3 flex flex-col flex-1">
+        {/* Nome + switch de disponibilidade */}
+        <div className="flex items-start justify-between gap-2">
+          <p className="text-sm font-semibold text-ink leading-snug line-clamp-2 flex-1">
             {produto.nome}
           </p>
-          <StatusBadge status={produto.disponivel ? 'disponivel' : 'indisponivel'} />
+          <button
+            type="button"
+            role="switch"
+            aria-checked={produto.disponivel}
+            title={produto.disponivel ? 'Disponível' : 'Indisponível'}
+            aria-label={produto.disponivel ? 'Disponível (tocar para ocultar)' : 'Indisponível (tocar para exibir)'}
+            onClick={onToggleDisponivel}
+            className={[
+              'relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors duration-200',
+              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500',
+              produto.disponivel ? 'bg-brand-500' : 'bg-line',
+            ].join(' ')}
+          >
+            <span
+              className={[
+                'inline-block h-4 w-4 rounded-full bg-surface shadow-sm transition-transform duration-200',
+                produto.disponivel ? 'translate-x-6' : 'translate-x-1',
+              ].join(' ')}
+            />
+          </button>
         </div>
 
+        {/* Descrição curta */}
+        {produto.descricao && (
+          <p className="text-xs text-ink-mute mt-1 line-clamp-2 leading-snug">{produto.descricao}</p>
+        )}
+
         {/* Preço */}
-        <p className="text-[18px] font-bold text-brand-700 mt-1">
+        <p className="text-[16px] font-bold text-brand-700 mt-2">
           {formatarReal(produto.preco)}
-          <span className="text-sm font-normal text-ink-mute">
-            {' '}/ {labelUnidade(produto.unidade)}
-          </span>
+          <span className="text-xs font-normal text-ink-mute"> / {labelUnidade(produto.unidade)}</span>
         </p>
 
         {/* Categoria */}
@@ -454,16 +492,26 @@ function ProdutoCard({ produto, categoriaNome, onEditar, onExcluir }: ProdutoCar
           <p className="text-xs text-ink-mute mt-1">{categoriaNome}</p>
         )}
 
-        {/* Ações */}
-        <div className="flex gap-2 mt-3 pt-3 border-t border-line justify-end">
-          <Button variant="ghost" onClick={onEditar}>Editar</Button>
-          <Button
-            variant="ghost"
-            className="text-danger hover:bg-danger/10"
-            onClick={onExcluir}
+        {/* Ações em ícone (tooltip via title) */}
+        <div className="flex gap-1 mt-3 pt-2 border-t border-line justify-end">
+          <button
+            type="button"
+            title="Editar produto"
+            aria-label="Editar produto"
+            onClick={onEditar}
+            className="w-9 h-9 flex items-center justify-center rounded-full text-brand-700 hover:bg-brand-50 transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
           >
-            Excluir
-          </Button>
+            <Pencil size={15} strokeWidth={1.75} />
+          </button>
+          <button
+            type="button"
+            title="Excluir produto"
+            aria-label="Excluir produto"
+            onClick={onExcluir}
+            className="w-9 h-9 flex items-center justify-center rounded-full text-danger hover:bg-danger/10 transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+          >
+            <Trash2 size={15} strokeWidth={1.75} />
+          </button>
         </div>
       </div>
     </Card>
@@ -555,6 +603,16 @@ export default function Produtos() {
     if (loja) await buscarProdutos(loja.id)
   }
 
+  async function toggleDisponivel(produto: Produto) {
+    // Atualização otimista; reverte buscando de novo em caso de erro
+    setProdutos(prev => prev.map(p => p.id === produto.id ? { ...p, disponivel: !p.disponivel } : p))
+    const { error } = await supabase
+      .from('produtos')
+      .update({ disponivel: !produto.disponivel })
+      .eq('id', produto.id)
+    if (error && loja) await buscarProdutos(loja.id)
+  }
+
   function excluir(produto: Produto) {
     setDialogo({
       mensagem: `Excluir o produto "${produto.nome}"?`,
@@ -593,9 +651,8 @@ export default function Produtos() {
   return (
     <>
     <main className="py-8">
-      <PageContainer size="narrow" className="flex flex-col gap-6">
+      <PageContainer size={formAberto ? 'narrow' : 'wide'} className="flex flex-col gap-6">
 
-        {/* Formulário ou botão "Novo produto" */}
         {formAberto ? (
           <ProdutoForm
             loja={loja}
@@ -605,32 +662,42 @@ export default function Produtos() {
             onCancelar={fecharForm}
           />
         ) : (
-          <Button onClick={abrirNovoProduto} className="w-full">
-            + Novo produto
-          </Button>
-        )}
+          <>
+            {/* Topo: título + Novo produto */}
+            <SectionTitle
+              count={produtos.length}
+              action={
+                <Button onClick={abrirNovoProduto} className="!min-h-[40px] text-sm px-4">
+                  <Plus size={16} strokeWidth={2} />
+                  Novo produto
+                </Button>
+              }
+            >
+              Produtos
+            </SectionTitle>
 
-        {/* Lista */}
-        {!formAberto && (
-          produtos.length === 0 ? (
-            <Card bodyClassName="p-8 text-center">
-              <p className="text-sm text-ink-mute">
-                Nenhum produto cadastrado ainda.
-              </p>
-            </Card>
-          ) : (
-            <div className="grid grid-cols-2 gap-3">
-              {produtos.map(p => (
-                <ProdutoCard
-                  key={p.id}
-                  produto={p}
-                  categoriaNome={p.categoria_id ? categoriaMap[p.categoria_id] : undefined}
-                  onEditar={() => abrirEdicao(p)}
-                  onExcluir={() => excluir(p)}
-                />
-              ))}
-            </div>
-          )
+            {/* Lista */}
+            {produtos.length === 0 ? (
+              <Card bodyClassName="p-10 text-center">
+                <ImageIcon size={32} strokeWidth={1.25} className="text-ink-mute mx-auto mb-3" />
+                <p className="text-sm font-semibold text-ink">Nenhum produto cadastrado</p>
+                <p className="text-xs text-ink-mute mt-1">Toque em “Novo produto” para começar.</p>
+              </Card>
+            ) : (
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-4">
+                {produtos.map(p => (
+                  <ProdutoCard
+                    key={p.id}
+                    produto={p}
+                    categoriaNome={p.categoria_id ? categoriaMap[p.categoria_id] : undefined}
+                    onEditar={() => abrirEdicao(p)}
+                    onExcluir={() => excluir(p)}
+                    onToggleDisponivel={() => toggleDisponivel(p)}
+                  />
+                ))}
+              </div>
+            )}
+          </>
         )}
 
       </PageContainer>
