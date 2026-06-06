@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
+import { Pencil, Trash2, Plus, Tags } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
@@ -33,10 +34,12 @@ export default function Categorias() {
 
   const [loja, setLoja]             = useState<Loja | null | undefined>(undefined)
   const [categorias, setCategorias] = useState<Categoria[]>([])
+  const [contagem, setContagem]     = useState<Record<string, number>>({})
 
   // Formulário de adição
   const [novaCategoria, setNovaCategoria] = useState('')
   const [adicionando, setAdicionando]     = useState(false)
+  const [mostrarForm, setMostrarForm]     = useState(false)
 
   // Diálogo de confirmação
   const [dialogo, setDialogo] = useState<{ mensagem: string; onConfirmar: () => void } | null>(null)
@@ -66,7 +69,10 @@ export default function Categorias() {
       setLoja(lojaEncontrada)
 
       if (lojaEncontrada) {
-        await buscarCategorias(lojaEncontrada.id)
+        await Promise.all([
+          buscarCategorias(lojaEncontrada.id),
+          buscarContagem(lojaEncontrada.id),
+        ])
       }
     }
 
@@ -83,6 +89,20 @@ export default function Categorias() {
       .order('ordem')
 
     setCategorias((data as Categoria[]) ?? [])
+  }
+
+  // Quantos produtos há em cada categoria
+  async function buscarContagem(lojaId: string) {
+    const { data } = await supabase
+      .from('produtos')
+      .select('categoria_id')
+      .eq('loja_id', lojaId)
+
+    const mapa: Record<string, number> = {}
+    for (const row of (data as { categoria_id: string | null }[] | null) ?? []) {
+      if (row.categoria_id) mapa[row.categoria_id] = (mapa[row.categoria_id] ?? 0) + 1
+    }
+    setContagem(mapa)
   }
 
   /* ── Adicionar ──────────────────────────────────── */
@@ -174,42 +194,59 @@ export default function Categorias() {
     <main className="py-8">
       <PageContainer size="narrow" className="flex flex-col gap-6">
 
-        {/* Formulário de adição */}
-        <Card bodyClassName="p-6">
-          <h2 className="text-[18px] font-semibold text-ink mb-4">
-            Nova categoria
-          </h2>
-          <form onSubmit={handleAdicionar} className="flex gap-3 items-end">
-            <div className="flex-1">
-              <Input
-                id="nova-categoria"
-                placeholder="Ex.: Pizzas, Bebidas, Sobremesas…"
-                value={novaCategoria}
-                onChange={(e) => setNovaCategoria(e.target.value)}
-                required
-              />
-            </div>
-            <Button type="submit" disabled={adicionando}>
-              {adicionando ? 'Adicionando…' : 'Adicionar'}
+        {/* Topo: título + Nova categoria */}
+        <SectionTitle
+          count={categorias.length}
+          action={
+            <Button onClick={() => setMostrarForm(v => !v)} className="!min-h-[40px] text-sm px-4">
+              <Plus size={16} strokeWidth={2} />
+              Nova categoria
             </Button>
-          </form>
-        </Card>
+          }
+        >
+          Categorias
+        </SectionTitle>
 
-        {/* Lista de categorias */}
-        <Card bodyClassName="p-6">
-          <SectionTitle count={categorias.length} className="mb-1">Categorias</SectionTitle>
+        {/* Formulário de adição (toggle) */}
+        {mostrarForm && (
+          <Card bodyClassName="p-4">
+            <form onSubmit={handleAdicionar} className="flex gap-2 items-end">
+              <div className="flex-1">
+                <Input
+                  id="nova-categoria"
+                  placeholder="Ex.: Pizzas, Bebidas, Sobremesas…"
+                  value={novaCategoria}
+                  onChange={(e) => setNovaCategoria(e.target.value)}
+                  autoFocus
+                  required
+                />
+              </div>
+              <Button type="submit" disabled={adicionando}>
+                {adicionando ? 'Adicionando…' : 'Adicionar'}
+              </Button>
+            </form>
+          </Card>
+        )}
 
-          {categorias.length === 0 ? (
-            <p className="text-sm text-ink-mute text-center py-6">
-              Nenhuma categoria ainda. Adicione a primeira acima.
+        {/* Empty state ou lista */}
+        {categorias.length === 0 ? (
+          <Card bodyClassName="p-10 text-center">
+            <Tags size={32} strokeWidth={1.25} className="text-ink-mute mx-auto mb-3" />
+            <p className="text-sm font-semibold text-ink">Organize seu cardápio em categorias</p>
+            <p className="text-xs text-ink-mute mt-1 mb-4">
+              Agrupe seus produtos para o cliente encontrar mais fácil.
             </p>
-          ) : (
-            <ul className="mt-4 flex flex-col divide-y divide-line">
-              {categorias.map((cat) => (
-                <li key={cat.id} className="flex items-center gap-3 py-3 first:pt-0 last:pb-0">
+            <Button onClick={() => setMostrarForm(true)}>Criar primeira categoria</Button>
+          </Card>
+        ) : (
+          <div className="flex flex-col gap-2">
+            {categorias.map((cat) => {
+              const qtd = contagem[cat.id] ?? 0
+              return (
+                <Card key={cat.id} bodyClassName="px-4 py-3">
                   {editandoId === cat.id ? (
                     /* Modo edição */
-                    <>
+                    <div className="flex gap-2 items-center">
                       <div className="flex-1">
                         <Input
                           id={`edit-${cat.id}`}
@@ -222,45 +259,47 @@ export default function Categorias() {
                           }}
                         />
                       </div>
-                      <Button
-                        onClick={() => salvarEdicao(cat)}
-                        disabled={salvandoEdicao}
-                      >
+                      <Button onClick={() => salvarEdicao(cat)} disabled={salvandoEdicao} className="!min-h-[40px] px-3 text-sm">
                         Salvar
                       </Button>
-                      <Button
-                        variant="secondary"
-                        onClick={() => setEditandoId(null)}
-                      >
+                      <Button variant="secondary" onClick={() => setEditandoId(null)} className="!min-h-[40px] px-3 text-sm">
                         Cancelar
                       </Button>
-                    </>
+                    </div>
                   ) : (
                     /* Modo visualização */
-                    <>
-                      <span className="flex-1 text-sm font-medium text-ink">
-                        {cat.nome}
-                      </span>
-                      <Button
-                        variant="ghost"
+                    <div className="flex items-center gap-3">
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-ink truncate">{cat.nome}</p>
+                        <p className="text-xs text-ink-mute mt-0.5">
+                          {qtd} {qtd === 1 ? 'produto' : 'produtos'}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        title="Editar categoria"
+                        aria-label="Editar categoria"
                         onClick={() => iniciarEdicao(cat)}
+                        className="w-9 h-9 flex items-center justify-center rounded-full text-brand-700 hover:bg-brand-50 transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
                       >
-                        Editar
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        className="text-danger hover:bg-danger/10"
+                        <Pencil size={15} strokeWidth={1.75} />
+                      </button>
+                      <button
+                        type="button"
+                        title="Excluir categoria"
+                        aria-label="Excluir categoria"
                         onClick={() => excluir(cat)}
+                        className="w-9 h-9 flex items-center justify-center rounded-full text-danger hover:bg-danger/10 transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
                       >
-                        Excluir
-                      </Button>
-                    </>
+                        <Trash2 size={15} strokeWidth={1.75} />
+                      </button>
+                    </div>
                   )}
-                </li>
-              ))}
-            </ul>
-          )}
-        </Card>
+                </Card>
+              )
+            })}
+          </div>
+        )}
 
       </PageContainer>
     </main>
