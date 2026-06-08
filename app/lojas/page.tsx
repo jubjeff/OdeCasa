@@ -17,6 +17,8 @@ interface Loja {
   taxa_entrega: number
   pedido_minimo: number | null
   logo_url: string | null
+  tempo_entrega_min: number | null
+  avaliacoes_ativas: boolean
 }
 
 /* ── Categorias (apenas visual — lojas não têm tipo ainda) ── */
@@ -52,7 +54,7 @@ function inicial(nome: string): string {
 
 /* ── Card de loja ────────────────────────────────── */
 
-function CardLoja({ loja }: { loja: Loja }) {
+function CardLoja({ loja, avaliacao }: { loja: Loja; avaliacao?: { media: number; count: number } }) {
   const entrega =
     loja.taxa_entrega === 0 ? 'Entrega grátis' : `Entrega ${formatarReal(loja.taxa_entrega)}`
 
@@ -90,8 +92,18 @@ function CardLoja({ loja }: { loja: Loja }) {
             <Truck size={13} strokeWidth={1.75} />
             {entrega}
           </span>
+          {loja.tempo_entrega_min != null && (
+            <span className="text-xs text-ink-mute">
+              · ⏱ {loja.tempo_entrega_min}–{loja.tempo_entrega_min + 15} min
+            </span>
+          )}
           {loja.pedido_minimo != null && loja.pedido_minimo > 0 && (
             <span className="text-xs text-ink-mute">· mín {formatarReal(loja.pedido_minimo)}</span>
+          )}
+          {avaliacao && (
+            <span className="text-xs font-semibold text-accent">
+              ⭐ {avaliacao.media.toFixed(1)}
+            </span>
           )}
         </div>
       </div>
@@ -103,16 +115,35 @@ function CardLoja({ loja }: { loja: Loja }) {
 
 export default function HubLojas() {
   const [lojas, setLojas] = useState<Loja[] | undefined>(undefined)
+  const [mediaLojas, setMediaLojas] = useState<Record<string, { media: number; count: number }>>({})
   const [busca, setBusca] = useState('')
 
   useEffect(() => {
     async function carregar() {
-      const { data } = await supabase
-        .from('lojas')
-        .select('id, nome, slug, endereco, taxa_entrega, pedido_minimo, logo_url')
-        .eq('ativo', true)
-        .order('nome', { ascending: true })
+      const [{ data }, { data: avalData }] = await Promise.all([
+        supabase
+          .from('lojas')
+          .select('id, nome, slug, endereco, taxa_entrega, pedido_minimo, logo_url, tempo_entrega_min, avaliacoes_ativas')
+          .eq('ativo', true)
+          .order('nome', { ascending: true }),
+        supabase.from('avaliacoes').select('loja_id, nota'),
+      ])
       setLojas((data as Loja[]) ?? [])
+
+      // Agrupa avaliações por loja e computa média (exibe se >= 5)
+      if (avalData && avalData.length > 0) {
+        const grupos: Record<string, number[]> = {}
+        for (const a of avalData as { loja_id: string; nota: number }[]) {
+          ;(grupos[a.loja_id] ??= []).push(a.nota)
+        }
+        const mapa: Record<string, { media: number; count: number }> = {}
+        for (const [lojaId, notas] of Object.entries(grupos)) {
+          if (notas.length >= 5) {
+            mapa[lojaId] = { media: notas.reduce((s, n) => s + n, 0) / notas.length, count: notas.length }
+          }
+        }
+        setMediaLojas(mapa)
+      }
     }
     carregar()
   }, [])
@@ -244,7 +275,7 @@ export default function HubLojas() {
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
                 {filtradas.map(loja => (
-                  <CardLoja key={loja.id} loja={loja} />
+                  <CardLoja key={loja.id} loja={loja} avaliacao={loja.avaliacoes_ativas ? mediaLojas[loja.id] : undefined} />
                 ))}
               </div>
             )}

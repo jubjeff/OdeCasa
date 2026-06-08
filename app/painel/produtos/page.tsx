@@ -8,6 +8,7 @@ import { supabase } from '@/lib/supabase'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Card } from '@/components/ui/Card'
+import { Chip } from '@/components/ui/Chip'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { PageContainer } from '@/components/ui/PageContainer'
 import { SectionTitle } from '@/components/ui/SectionTitle'
@@ -27,6 +28,7 @@ interface Produto {
   nome: string
   descricao: string | null
   preco: number
+  preco_original: number | null
   unidade: string
   estoque: number | null
   controla_estoque: boolean
@@ -39,6 +41,7 @@ interface FormValues {
   nome: string
   categoria_id: string
   preco: string
+  preco_original: string
   unidade: string
   descricao: string
   controla_estoque: boolean
@@ -62,6 +65,7 @@ const FORM_VAZIO: FormValues = {
   nome: '',
   categoria_id: '',
   preco: '',
+  preco_original: '',
   unidade: 'un',
   descricao: '',
   controla_estoque: false,
@@ -97,6 +101,7 @@ function produtoParaForm(p: Produto): FormValues {
     nome: p.nome,
     categoria_id: p.categoria_id ?? '',
     preco: p.preco.toFixed(2).replace('.', ','),
+    preco_original: p.preco_original != null ? p.preco_original.toFixed(2).replace('.', ',') : '',
     unidade: p.unidade,
     descricao: p.descricao ?? '',
     controla_estoque: p.controla_estoque,
@@ -180,6 +185,7 @@ function ProdutoForm({ loja, categorias, produto, onSalvo, onCancelar }: Produto
       nome:              form.nome.trim(),
       categoria_id:      form.categoria_id || null,
       preco:             parsePrecoBR(form.preco),
+      preco_original:    form.preco_original.trim() ? parsePrecoBR(form.preco_original) : null,
       unidade:           form.unidade,
       descricao:         form.descricao.trim() || null,
       controla_estoque:  form.controla_estoque,
@@ -327,6 +333,15 @@ function ProdutoForm({ loja, categorias, produto, onSalvo, onCancelar }: Produto
             </select>
           </div>
         </div>
+
+        {/* Preço original (desconto) */}
+        <Input
+          label={<>Preço original <span className="text-ink-mute font-normal">(opcional — preencha para exibir desconto)</span></>}
+          id="prod-preco-original"
+          value={form.preco_original}
+          onChange={e => set('preco_original', e.target.value)}
+          placeholder="0,00"
+        />
 
         {/* Descrição */}
         <div className="flex flex-col gap-1.5">
@@ -532,6 +547,7 @@ export default function Produtos() {
   const [formAberto, setFormAberto]           = useState(false)
   const [produtoEditando, setProdutoEditando] = useState<Produto | null>(null)
   const [dialogo, setDialogo]                 = useState<{ mensagem: string; onConfirmar: () => void } | null>(null)
+  const [filtroCategoria, setFiltroCategoria] = useState<string | null>(null)
 
   /* ── Inicialização ──────────────────────────── */
 
@@ -678,6 +694,15 @@ export default function Produtos() {
 
   const categoriaMap = Object.fromEntries(categorias.map(c => [c.id, c.nome]))
 
+  const produtosFiltrados = filtroCategoria === 'sem-categoria'
+    ? produtos.filter(p => !p.categoria_id)
+    : filtroCategoria
+      ? produtos.filter(p => p.categoria_id === filtroCategoria)
+      : produtos
+
+  const catsComProdutos = categorias.filter(c => produtos.some(p => p.categoria_id === c.id))
+  const temSemCategoria = produtos.some(p => !p.categoria_id)
+
   return (
     <>
     <main className="py-8">
@@ -695,7 +720,7 @@ export default function Produtos() {
           <>
             {/* Topo: título + Novo produto */}
             <SectionTitle
-              count={produtos.length}
+              count={produtosFiltrados.length}
               action={
                 <Button onClick={abrirNovoProduto} className="!min-h-[40px] text-sm px-4">
                   <Plus size={16} strokeWidth={2} />
@@ -706,16 +731,53 @@ export default function Produtos() {
               Produtos
             </SectionTitle>
 
+            {/* Filtro por categoria */}
+            {(catsComProdutos.length > 0 || temSemCategoria) && (
+              <div className="flex gap-2 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden -mt-2">
+                <Chip
+                  selected={filtroCategoria === null}
+                  variant="solid"
+                  onClick={() => setFiltroCategoria(null)}
+                >
+                  Todos
+                </Chip>
+                {catsComProdutos.map(c => (
+                  <Chip
+                    key={c.id}
+                    selected={filtroCategoria === c.id}
+                    variant="solid"
+                    onClick={() => setFiltroCategoria(c.id)}
+                  >
+                    {c.nome}
+                  </Chip>
+                ))}
+                {temSemCategoria && (
+                  <Chip
+                    selected={filtroCategoria === 'sem-categoria'}
+                    variant="solid"
+                    onClick={() => setFiltroCategoria('sem-categoria')}
+                  >
+                    Sem categoria
+                  </Chip>
+                )}
+              </div>
+            )}
+
             {/* Lista */}
             {produtos.length === 0 ? (
               <Card bodyClassName="p-10 text-center">
                 <ImageIcon size={32} strokeWidth={1.25} className="text-ink-mute mx-auto mb-3" />
                 <p className="text-sm font-semibold text-ink">Nenhum produto cadastrado</p>
-                <p className="text-xs text-ink-mute mt-1">Toque em “Novo produto” para começar.</p>
+                <p className="text-xs text-ink-mute mt-1">Toque em "Novo produto" para começar.</p>
+              </Card>
+            ) : produtosFiltrados.length === 0 ? (
+              <Card bodyClassName="p-10 text-center">
+                <ImageIcon size={32} strokeWidth={1.25} className="text-ink-mute mx-auto mb-3" />
+                <p className="text-sm font-semibold text-ink">Nenhum produto nesta categoria</p>
               </Card>
             ) : (
               <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-4">
-                {produtos.map(p => (
+                {produtosFiltrados.map(p => (
                   <ProdutoCard
                     key={p.id}
                     produto={p}

@@ -1,11 +1,12 @@
 import { HTMLAttributes } from 'react'
 
 /* Larguras de conteúdo padronizadas (compartilhadas com a TopBar) */
-export type WrapSize = 'wide' | 'reading' | 'narrow'
+export type WrapSize = 'wide' | 'reading' | 'medium' | 'narrow'
 
 export const WRAP_MAX: Record<WrapSize, string> = {
   wide: 'max-w-5xl',     // hubs e listagens (referência: /lojas)
   reading: 'max-w-2xl',  // cardápio e checkout (leitura em coluna)
+  medium: 'max-w-3xl',   // painéis com abas e múltiplas colunas
   narrow: 'max-w-lg',    // formulários, painel, conta
 }
 

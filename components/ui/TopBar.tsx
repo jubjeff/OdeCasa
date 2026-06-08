@@ -12,12 +12,14 @@ interface TopBarProps {
   below?: ReactNode
   /** Largura do container — deve casar com o PageContainer da página. */
   width?: WrapSize
+  /** Classes extras aplicadas ao elemento <header>. */
+  className?: string
 }
 
 /** Barra superior fixa padrão: surface, hairline inferior, container alinhado ao conteúdo. */
-export function TopBar({ left, title, right, below, width = 'wide' }: TopBarProps) {
+export function TopBar({ left, title, right, below, width = 'wide', className }: TopBarProps) {
   return (
-    <header className="sticky top-0 z-30 bg-surface border-b border-line">
+    <header className={['sticky top-0 z-30 bg-surface border-b border-line', className].filter(Boolean).join(' ')}>
       <div className={[WRAP_MAX[width], 'mx-auto w-full px-4'].join(' ')}>
         <div className="h-14 flex items-center gap-2">
           {left}

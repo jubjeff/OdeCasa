@@ -6,6 +6,7 @@ import { useParams, useRouter } from 'next/navigation'
 import {
   ShoppingCart, MapPin, Truck, ImageIcon, ShoppingBag, SearchX, Search,
   Minus, Plus, X, AlertCircle, ArrowLeft, CheckCircle2, Copy, Check, User, Bell,
+  Info, MessageCircle, Star, ExternalLink,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { supabase } from '@/lib/supabase'
@@ -20,6 +21,11 @@ import { NotificationBell } from '@/components/ui/NotificationBell'
 
 /* ── Tipos ───────────────────────────────────────── */
 
+interface FaixaEntrega {
+  distancia_ate: number
+  taxa: number
+}
+
 interface Loja {
   id: string
   nome: string
@@ -31,6 +37,13 @@ interface Loja {
   ativo: boolean
   logo_url: string | null
   chave_pix: string | null
+  horarios: Record<string, { aberto: boolean; abre: string; fecha: string }> | null
+  tempo_entrega_min: number | null
+  avaliacoes_ativas: boolean
+  latitude: number | null
+  longitude: number | null
+  raio_maximo_km: number | null
+  faixas_entrega: FaixaEntrega[] | null
 }
 
 interface Categoria {
@@ -47,9 +60,11 @@ interface Produto {
   nome: string
   descricao: string | null
   preco: number
+  preco_original: number | null
   unidade: string
   foto_url: string | null
   disponivel: boolean
+  criado_em: string | null
 }
 
 interface ItemCarrinho {
@@ -74,6 +89,7 @@ interface Endereco {
   endereco: string
   complemento: string | null
   referencia: string | null
+  cep: string | null
   padrao: boolean
   criado_em: string
 }
@@ -92,7 +108,13 @@ type Etapa = 'loja' | 'checkout' | 'confirmacao'
 interface FormCheckout {
   nome: string
   telefone: string
-  endereco: string
+  cep: string
+  rua: string
+  numero: string
+  complemento: string
+  bairro: string
+  cidade: string
+  referencia: string
   observacoes: string
   forma_pagamento: FormaPagamento
   troco_para: string
@@ -108,6 +130,7 @@ interface PedidoConfirmado {
   forma_pagamento: FormaPagamento
   troco_para: number | null
   observacoes: string | null
+  endereco_entrega: string
 }
 
 /* ── Helpers ─────────────────────────────────────── */
@@ -118,6 +141,12 @@ function formatarReal(valor: number): string {
 
 function normalizar(texto: string): string {
   return texto.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
+}
+
+function mascaraCep(valor: string): string {
+  const d = valor.replace(/\D/g, '').slice(0, 8)
+  if (d.length <= 5) return d
+  return `${d.slice(0, 5)}-${d.slice(5)}`
 }
 
 function aplicarMascaraTelefone(valor: string): string {
@@ -157,6 +186,106 @@ const LABEL_UNIDADE: Record<string, string> = {
 function labelUnidade(un: string): string {
   return LABEL_UNIDADE[un] ?? un
 }
+
+type StatusLoja =
+  | { tipo: 'aberto'; fecha: string }
+  | { tipo: 'fechado'; abre: string; dia: string | null }
+  | null
+
+function calcularStatus(horarios: Loja['horarios']): StatusLoja {
+  if (!horarios) return null
+  const CHAVES = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sab']
+  const NOMES  = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb']
+  const now = new Date()
+  const diaIdx = now.getDay()
+  const agora = now.getHours() * 60 + now.getMinutes()
+  const toMin = (h: string) => { const [hh, mm] = h.split(':').map(Number); return hh * 60 + mm }
+
+  const hoje = horarios[CHAVES[diaIdx]]
+  if (hoje?.aberto) {
+    const abre  = toMin(hoje.abre)
+    const fecha = toMin(hoje.fecha)
+    if (agora >= abre && agora < fecha) return { tipo: 'aberto', fecha: hoje.fecha }
+    if (agora < abre) return { tipo: 'fechado', abre: hoje.abre, dia: null }
+  }
+
+  for (let i = 1; i <= 7; i++) {
+    const idx = (diaIdx + i) % 7
+    const d = horarios[CHAVES[idx]]
+    if (d?.aberto) return { tipo: 'fechado', abre: d.abre, dia: NOMES[idx] }
+  }
+  return null
+}
+
+/* ── Geo helpers ─────────────────────────────────── */
+
+function haversine(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const R = 6371
+  const dLat = (lat2 - lat1) * Math.PI / 180
+  const dLon = (lon2 - lon1) * Math.PI / 180
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon / 2) ** 2
+  return R * 2 * Math.asin(Math.sqrt(a))
+}
+
+function taxaPorFaixa(faixas: FaixaEntrega[], distanciaKm: number): number | null {
+  const ordenadas = [...faixas].sort((a, b) => a.distancia_ate - b.distancia_ate)
+  const faixa = ordenadas.find(f => f.distancia_ate >= distanciaKm)
+  return faixa ? faixa.taxa : null
+}
+
+const NOMINATIM = 'https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=br'
+const GEO_HEADERS = { 'Accept-Language': 'pt-BR', 'User-Agent': 'OdeCasa-Delivery' }
+
+async function nominatimQuery(params: Record<string, string>): Promise<{ lat: number; lon: number } | null> {
+  try {
+    const qs = new URLSearchParams(params).toString()
+    const res = await fetch(`${NOMINATIM}&${qs}`, { headers: GEO_HEADERS })
+    const data = await res.json() as Array<{ lat: string; lon: string }>
+    if (data.length > 0) return { lat: parseFloat(data[0].lat), lon: parseFloat(data[0].lon) }
+    return null
+  } catch {
+    return null
+  }
+}
+
+async function geocodificarEndereco(endereco: string): Promise<{ lat: number; lon: number } | null> {
+  return nominatimQuery({ q: endereco })
+}
+
+// Busca por CEP: usa ViaCEP para obter cidade/estado e faz busca estruturada no Nominatim
+// (cobertura de postalcode BR no Nominatim é incompleta — busca por cidade é mais confiável)
+async function geocodificarCep(cep: string): Promise<{ lat: number; lon: number } | null> {
+  const digits = cep.replace(/\D/g, '')
+  if (digits.length !== 8) return null
+  try {
+    const vRes = await fetch(`https://viacep.com.br/ws/${digits}/json/`)
+    const v = await vRes.json() as Record<string, string>
+    if (v.erro) return null
+    // busca estruturada: rua + cidade → fallback só cidade+estado
+    const coords = v.logradouro
+      ? await nominatimQuery({ street: v.logradouro, city: v.localidade, state: v.uf })
+      : null
+    return coords ?? await nominatimQuery({ city: v.localidade, state: v.uf, country: 'Brasil' })
+  } catch {
+    return null
+  }
+}
+
+function labelEntrega(loja: Loja): string {
+  const faixas = loja.faixas_entrega
+  if (faixas && faixas.length > 0) {
+    const ordenadas = [...faixas].sort((a, b) => a.distancia_ate - b.distancia_ate)
+    const primeira = ordenadas[0]
+    if (primeira.taxa === 0) return `Entrega grátis até ${primeira.distancia_ate} km`
+    const menorTaxa = Math.min(...ordenadas.map(f => f.taxa))
+    return `Entrega a partir de ${formatarReal(menorTaxa)}`
+  }
+  return loja.taxa_entrega === 0 ? 'Entrega grátis' : `Entrega ${formatarReal(loja.taxa_entrega)}`
+}
+
+/* ── Label pagamento ─────────────────────────────── */
 
 const LABEL_PAGAMENTO: Record<FormaPagamento, string> = {
   dinheiro: 'Dinheiro',
@@ -300,27 +429,55 @@ function ControleQtd({ item, dispatch, size = 'md' }: ControleQtdProps) {
 
 /* ── Card de produto público ─────────────────────── */
 
+const SETE_DIAS_MS = 7 * 24 * 60 * 60 * 1000
+
+function isProdutoNovo(criado_em: string | null): boolean {
+  if (!criado_em) return false
+  return Date.now() - new Date(criado_em).getTime() < SETE_DIAS_MS
+}
+
+function FotoPlaceholder({ size = 28 }: { size?: number }) {
+  return (
+    <div className="w-full h-full flex items-center justify-center bg-line">
+      <ImageIcon size={size} strokeWidth={1.25} className="text-ink-mute" />
+    </div>
+  )
+}
+
 interface CardProdutoProps {
   produto: Produto
   itemCarrinho: ItemCarrinho | undefined
   dispatch: React.Dispatch<AcaoCarrinho>
+  isMaisVendido?: boolean
 }
 
-function CardProduto({ produto, itemCarrinho, dispatch }: CardProdutoProps) {
+function CardProduto({ produto, itemCarrinho, dispatch, isMaisVendido }: CardProdutoProps) {
+  const isNovo = !isMaisVendido && isProdutoNovo(produto.criado_em)
+  const temDesconto = produto.preco_original != null && produto.preco_original > produto.preco
+  const desconto = temDesconto ? Math.round((1 - produto.preco / produto.preco_original!) * 100) : 0
+
   return (
-    <Card bodyClassName="p-0">
-      <div className="aspect-[4/3] overflow-hidden bg-brand-50">
+    <Card bodyClassName="p-0" className="hover:shadow-md transition-shadow duration-150 overflow-hidden">
+      <div className="aspect-square overflow-hidden relative">
         {produto.foto_url ? (
           <img src={produto.foto_url} alt={produto.nome} className="w-full h-full object-cover" />
         ) : (
-          <div className="w-full h-full flex items-center justify-center">
-            <ImageIcon size={28} strokeWidth={1.25} className="text-brand-200" />
-          </div>
+          <FotoPlaceholder size={28} />
+        )}
+        {isMaisVendido && (
+          <span className="absolute top-2 left-2 bg-ink/70 text-surface text-[10px] font-semibold px-2 py-0.5 rounded-full leading-none">
+            Mais vendido
+          </span>
+        )}
+        {isNovo && (
+          <span className="absolute top-2 left-2 bg-accent text-brand-900 text-xs font-semibold px-2.5 py-1 rounded-full leading-none shadow-sm">
+            Novo
+          </span>
         )}
       </div>
 
       <div className="p-3">
-        <p className="text-sm font-semibold text-ink leading-snug">{produto.nome}</p>
+        <p className="text-sm font-semibold text-ink leading-snug line-clamp-2">{produto.nome}</p>
 
         {produto.descricao && (
           <p className="text-xs text-ink-mute mt-1 line-clamp-2 leading-relaxed">
@@ -328,26 +485,120 @@ function CardProduto({ produto, itemCarrinho, dispatch }: CardProdutoProps) {
           </p>
         )}
 
-        <p className="text-[15px] font-bold text-brand-700 mt-2">
-          {formatarReal(produto.preco)}
-          <span className="text-xs font-normal text-ink-mute"> / {labelUnidade(produto.unidade)}</span>
-        </p>
+        <div className="mt-2">
+          <p className="text-[18px] font-bold text-brand-500 leading-none">
+            {formatarReal(produto.preco)}
+          </p>
+          {temDesconto && (
+            <div className="flex items-center gap-1 mt-1 flex-wrap">
+              <span className="text-xs text-ink-mute line-through">{formatarReal(produto.preco_original!)}</span>
+              <span className="text-[10px] font-bold bg-accent/20 text-accent rounded-full px-1.5 py-0.5 leading-none">
+                -{desconto}%
+              </span>
+            </div>
+          )}
+          <p className="text-[11px] text-ink-mute mt-0.5">/ {labelUnidade(produto.unidade)}</p>
+        </div>
 
-        <div className="mt-3 flex justify-center">
+        <div className="mt-2 flex justify-end">
           {itemCarrinho ? (
             <ControleQtd item={itemCarrinho} dispatch={dispatch} size="sm" />
           ) : (
-            <Button
-              variant="secondary"
-              className="w-full !min-h-[40px] text-xs px-2"
+            <button
               onClick={() => dispatch({ type: 'ADICIONAR', produto })}
+              aria-label={`Adicionar ${produto.nome}`}
+              className="w-9 h-9 flex items-center justify-center rounded-full bg-brand-500 text-surface hover:bg-brand-600 active:scale-95 transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
             >
-              Adicionar
-            </Button>
+              <Plus size={18} strokeWidth={2} />
+            </button>
           )}
         </div>
       </div>
     </Card>
+  )
+}
+
+/* ── Card e seção de Destaques ───────────────────── */
+
+interface CardDestaqueProps {
+  produto: Produto
+  itemCarrinho: ItemCarrinho | undefined
+  dispatch: React.Dispatch<AcaoCarrinho>
+  posicao: number
+}
+
+const RANK_BG  = ['bg-accent', 'bg-ink/60', 'bg-ink/45']
+const RANK_COR = ['text-brand-900', 'text-surface', 'text-surface']
+
+function CardDestaque({ produto, itemCarrinho, dispatch, posicao }: CardDestaqueProps) {
+  const bgCls  = RANK_BG[posicao - 1]  ?? RANK_BG[2]
+  const txtCls = RANK_COR[posicao - 1] ?? RANK_COR[2]
+
+  return (
+    <div className="shrink-0 w-52 bg-surface rounded-xl shadow-sm overflow-hidden">
+      {/* Foto */}
+      <div className="relative h-44 w-full overflow-hidden">
+        {produto.foto_url ? (
+          <img src={produto.foto_url} alt={produto.nome} className="w-full h-full object-cover" />
+        ) : (
+          <FotoPlaceholder size={36} />
+        )}
+        <span className={`absolute top-2 left-2 ${bgCls} ${txtCls} text-xs font-bold px-2.5 py-1 rounded-full leading-none shadow-sm`}>
+          {posicao}° mais pedido
+        </span>
+      </div>
+
+      {/* Conteúdo */}
+      <div className="p-3">
+        <p className="text-sm font-semibold text-ink leading-snug line-clamp-2 mb-3">{produto.nome}</p>
+        <div className="flex items-center justify-between gap-2">
+          <p className="text-base font-bold text-brand-500 leading-none">{formatarReal(produto.preco)}</p>
+          {itemCarrinho ? (
+            <ControleQtd item={itemCarrinho} dispatch={dispatch} size="sm" />
+          ) : (
+            <button
+              onClick={() => dispatch({ type: 'ADICIONAR', produto })}
+              aria-label={`Adicionar ${produto.nome}`}
+              className="w-9 h-9 flex items-center justify-center rounded-full bg-brand-500 text-surface hover:bg-brand-600 active:scale-95 transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+            >
+              <Plus size={16} strokeWidth={2} />
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+interface SecaoDestaquesProps {
+  produtos: Produto[]
+  topProdutosOrdem: string[]
+  carrinho: ItemCarrinho[]
+  dispatch: React.Dispatch<AcaoCarrinho>
+}
+
+function SecaoDestaques({ produtos, topProdutosOrdem, carrinho, dispatch }: SecaoDestaquesProps) {
+  const destaques = topProdutosOrdem
+    .map(id => produtos.find(p => p.id === id))
+    .filter((p): p is Produto => p != null)
+
+  if (destaques.length === 0) return null
+
+  return (
+    <section className="mt-6">
+      <SectionTitle className="mb-3">Destaques</SectionTitle>
+      <div className="flex gap-3 overflow-x-auto pb-2 -mx-4 px-4 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        {destaques.map((p, i) => (
+          <CardDestaque
+            key={p.id}
+            produto={p}
+            itemCarrinho={carrinho.find(item => item.id === p.id)}
+            dispatch={dispatch}
+            posicao={i + 1}
+          />
+        ))}
+      </div>
+    </section>
   )
 }
 
@@ -367,7 +618,9 @@ function DrawerCarrinho({ itens, loja, dispatch, onFechar, onContinuar }: Drawer
   const total = subtotal + taxa
   const minimo = loja.pedido_minimo ?? 0
   const faltaMinimo = minimo > 0 && subtotal < minimo ? minimo - subtotal : 0
-  const podeContinuar = faltaMinimo === 0
+  const statusLoja = calcularStatus(loja.horarios)
+  const lojaFechada = statusLoja?.tipo === 'fechado'
+  const podeContinuar = faltaMinimo === 0 && !lojaFechada
 
   useEffect(() => {
     document.body.style.overflow = 'hidden'
@@ -456,6 +709,18 @@ function DrawerCarrinho({ itens, loja, dispatch, onFechar, onContinuar }: Drawer
             <span>{formatarReal(total)}</span>
           </div>
 
+          {lojaFechada && (
+            <div className="flex items-start gap-2 bg-danger/10 text-danger rounded-lg p-3 mb-4 text-sm leading-snug">
+              <AlertCircle size={16} strokeWidth={1.75} className="shrink-0 mt-0.5" />
+              <span>
+                Loja fechada no momento.
+                {statusLoja && statusLoja.tipo === 'fechado' && (
+                  <> Abre {statusLoja.dia ? `${statusLoja.dia} às` : 'às'} {statusLoja.abre}.</>
+                )}
+              </span>
+            </div>
+          )}
+
           {faltaMinimo > 0 && (
             <div className="flex items-start gap-2 bg-accent/10 text-accent rounded-lg p-3 mb-4 text-sm leading-snug">
               <AlertCircle size={16} strokeWidth={1.75} className="shrink-0 mt-0.5" />
@@ -486,7 +751,7 @@ function BarraCarrinho({ itens, onAbrir }: BarraCarrinhoProps) {
   const subtotal = itens.reduce((acc, i) => acc + i.preco * i.quantidade, 0)
 
   return (
-    <div className="fixed bottom-0 inset-x-0 z-40 px-4 pb-4 pt-3 pointer-events-none">
+    <div className="animate-slide-up fixed bottom-0 inset-x-0 z-40 px-4 pb-4 pt-3 pointer-events-none">
       <div className="max-w-2xl mx-auto">
         <button
           onClick={onAbrir}
@@ -514,6 +779,96 @@ function BarraCarrinho({ itens, onAbrir }: BarraCarrinhoProps) {
   )
 }
 
+/* ── Drawer de informações da loja ──────────────── */
+
+interface DrawerInfoProps {
+  loja: Loja
+  onFechar: () => void
+}
+
+function DrawerInfo({ loja, onFechar }: DrawerInfoProps) {
+  useEffect(() => {
+    document.body.style.overflow = 'hidden'
+    return () => { document.body.style.overflow = '' }
+  }, [])
+
+  useEffect(() => {
+    function handleEsc(e: KeyboardEvent) {
+      if (e.key === 'Escape') onFechar()
+    }
+    document.addEventListener('keydown', handleEsc)
+    return () => document.removeEventListener('keydown', handleEsc)
+  }, [onFechar])
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex flex-col justify-end"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Informações da loja"
+    >
+      <div className="absolute inset-0 bg-ink/40" onClick={onFechar} aria-hidden="true" />
+
+      <div className="relative bg-surface rounded-t-2xl max-h-[70dvh] flex flex-col shadow-lg">
+        <div className="flex items-center justify-between px-4 pt-4 pb-3 border-b border-line shrink-0">
+          <h2 className="text-[18px] font-semibold text-ink">Informações</h2>
+          <button
+            onClick={onFechar}
+            aria-label="Fechar informações"
+            className="w-9 h-9 flex items-center justify-center rounded-full hover:bg-brand-50 transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+          >
+            <X size={20} strokeWidth={1.75} className="text-ink-soft" />
+          </button>
+        </div>
+
+        <div className="overflow-y-auto overscroll-contain flex-1 px-4 py-5 space-y-5">
+          {loja.endereco && (
+            <div className="flex items-start gap-3">
+              <MapPin size={18} strokeWidth={1.75} className="text-brand-500 shrink-0 mt-0.5" />
+              <div>
+                <p className="text-sm font-semibold text-ink">Endereço</p>
+                <p className="text-sm text-ink-soft mt-0.5 leading-relaxed">{loja.endereco}</p>
+              </div>
+            </div>
+          )}
+
+          <div className="flex items-start gap-3">
+            <Truck size={18} strokeWidth={1.75} className="text-brand-500 shrink-0 mt-0.5" />
+            <div>
+              <p className="text-sm font-semibold text-ink">Taxa de entrega</p>
+              <p className={[
+                'text-sm mt-0.5',
+                loja.taxa_entrega === 0 ? 'text-brand-600 font-medium' : 'text-ink-soft',
+              ].join(' ')}>
+                {loja.taxa_entrega === 0 ? 'Grátis' : formatarReal(loja.taxa_entrega)}
+              </p>
+            </div>
+          </div>
+
+          {loja.pedido_minimo != null && loja.pedido_minimo > 0 && (
+            <div className="flex items-start gap-3">
+              <ShoppingBag size={18} strokeWidth={1.75} className="text-brand-500 shrink-0 mt-0.5" />
+              <div>
+                <p className="text-sm font-semibold text-ink">Pedido mínimo</p>
+                <p className="text-sm text-ink-soft mt-0.5">{formatarReal(loja.pedido_minimo)}</p>
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div className="px-4 pb-6 pt-3 border-t border-line shrink-0">
+          <button
+            onClick={onFechar}
+            className="w-full min-h-[48px] rounded-md bg-brand-50 text-brand-700 font-semibold text-sm hover:bg-brand-100 active:scale-[0.98] transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+          >
+            Fechar
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 /* ── Tela de checkout ────────────────────────────── */
 
 const OPCOES_PAGAMENTO: { value: FormaPagamento; label: string }[] = [
@@ -532,12 +887,23 @@ interface TelaCheckoutProps {
   onEnderecoSalvo: () => void
 }
 
+type GeoStatus =
+  | { tipo: 'idle' }
+  | { tipo: 'calculando' }
+  | { tipo: 'ok'; distanciaKm: number; taxa: number }
+  | { tipo: 'fora_raio'; distanciaKm: number }
+  | { tipo: 'degradado' }
+
 function TelaCheckout({
   carrinho, loja, cliente, enderecos, onVoltar, onPedidoFeito, onEnderecoSalvo,
 }: TelaCheckoutProps) {
+  const lojaTemGeo =
+    loja.latitude != null &&
+    loja.longitude != null &&
+    loja.faixas_entrega != null &&
+    loja.faixas_entrega.length > 0
+
   const subtotal = carrinho.reduce((acc, i) => acc + i.preco * i.quantidade, 0)
-  const taxa = loja.taxa_entrega
-  const total = subtotal + taxa
   const minimo = loja.pedido_minimo ?? 0
   const faltaMinimo = minimo > 0 && subtotal < minimo ? minimo - subtotal : 0
 
@@ -547,42 +913,154 @@ function TelaCheckout({
   const [form, setForm] = useState<FormCheckout>({
     nome: cliente?.nome ?? '',
     telefone: '',
-    endereco: '',
+    cep: '',
+    rua: '',
+    numero: '',
+    complemento: '',
+    bairro: '',
+    cidade: '',
+    referencia: '',
     observacoes: '',
     forma_pagamento: 'pix',
     troco_para: '',
   })
-  // id do endereço salvo escolhido; null = digitar um novo endereço
   const [enderecoSelId, setEnderecoSelId] = useState<string | null>(
     temEnderecosSalvos ? enderecoPadrao.id : null
   )
   const [salvarEndereco, setSalvarEndereco] = useState(false)
+  const [buscandoCep, setBuscandoCep] = useState(false)
+  const [geoStatus, setGeoStatus] = useState<GeoStatus>({ tipo: 'idle' })
   const [erros, setErros] = useState<Partial<Record<keyof FormCheckout | 'geral', string>>>({})
   const [enviando, setEnviando] = useState(false)
   const [copiado, setCopiado] = useState(false)
+
+  // Geocodifica endereço salvo quando o cliente seleciona um
+  useEffect(() => {
+    if (!lojaTemGeo) return
+    if (enderecoSelId === null) {
+      setGeoStatus({ tipo: 'idle' })
+      return
+    }
+    const end = enderecos.find(e => e.id === enderecoSelId)
+    if (!end) return
+    setGeoStatus({ tipo: 'calculando' })
+    ;(async () => {
+      // tenta CEP primeiro (mais preciso), depois endereço completo
+      const coords = end.cep
+        ? (await geocodificarCep(end.cep) ?? await geocodificarEndereco(`${end.endereco}, Brasil`))
+        : await geocodificarEndereco(`${end.endereco}, Brasil`)
+      if (!coords) { setGeoStatus({ tipo: 'degradado' }); return }
+      const distanciaKm = haversine(loja.latitude!, loja.longitude!, coords.lat, coords.lon)
+      const raio = loja.raio_maximo_km ?? 999
+      if (distanciaKm > raio) { setGeoStatus({ tipo: 'fora_raio', distanciaKm }); return }
+      const taxa = taxaPorFaixa(loja.faixas_entrega!, distanciaKm) ?? loja.taxa_entrega
+      setGeoStatus({ tipo: 'ok', distanciaKm, taxa })
+    })()
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [enderecoSelId, lojaTemGeo])
+
+  // Taxa dinâmica: usa faixa calculada quando disponível
+  const usandoSalvo = cliente !== null && enderecoSelId !== null
+  const taxaEntrega = geoStatus.tipo === 'ok' ? geoStatus.taxa : loja.taxa_entrega
+  const total = subtotal + taxaEntrega
 
   function set(campo: keyof FormCheckout, valor: string) {
     setForm(f => ({ ...f, [campo]: valor }))
     setErros(e => ({ ...e, [campo]: undefined }))
   }
 
+  async function calcularDistancia(rua: string, bairro: string, cidade: string) {
+    if (!lojaTemGeo) return
+    setGeoStatus({ tipo: 'calculando' })
+    const cepDigits = form.cep.replace(/\D/g, '')
+    const coords = cepDigits.length === 8
+      ? (await geocodificarCep(cepDigits) ?? await geocodificarEndereco([rua, bairro, cidade, 'Brasil'].filter(Boolean).join(', ')))
+      : await geocodificarEndereco([rua, bairro, cidade, 'Brasil'].filter(Boolean).join(', '))
+    if (!coords) {
+      setGeoStatus({ tipo: 'degradado' })
+      return
+    }
+    const distanciaKm = haversine(loja.latitude!, loja.longitude!, coords.lat, coords.lon)
+    const raio = loja.raio_maximo_km ?? 999
+    if (distanciaKm > raio) {
+      setGeoStatus({ tipo: 'fora_raio', distanciaKm })
+      return
+    }
+    const taxa = taxaPorFaixa(loja.faixas_entrega!, distanciaKm) ?? loja.taxa_entrega
+    setGeoStatus({ tipo: 'ok', distanciaKm, taxa })
+  }
+
+  async function buscarCep(cep: string) {
+    const limpo = cep.replace(/\D/g, '')
+    if (limpo.length !== 8) return
+    setBuscandoCep(true)
+    try {
+      const res = await fetch(`https://viacep.com.br/ws/${limpo}/json/`)
+      if (!res.ok) return
+      const data = await res.json() as Record<string, string>
+      if (data.erro) return
+      const novaRua    = data.logradouro || form.rua
+      const novoBairro = data.bairro     || form.bairro
+      const novaCidade = data.localidade || form.cidade
+      setForm(f => ({ ...f, rua: novaRua, bairro: novoBairro, cidade: novaCidade }))
+      setErros(e => ({ ...e, rua: undefined, bairro: undefined }))
+      if (lojaTemGeo && novaCidade) {
+        calcularDistancia(novaRua, novoBairro, novaCidade)
+      }
+    } catch {
+      // falha silenciosa — usuário preenche manualmente
+    } finally {
+      setBuscandoCep(false)
+    }
+  }
+
+  function handleCepChange(valor: string) {
+    const mascarado = mascaraCep(valor)
+    set('cep', mascarado)
+    if (lojaTemGeo) setGeoStatus({ tipo: 'idle' })
+    if (mascarado.replace(/\D/g, '').length === 8) buscarCep(mascarado)
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
 
-    // Endereço escolhido: salvo (logado) ou digitado
-    const usandoSalvo = cliente !== null && enderecoSelId !== null
+    // Verifica se a loja ainda está aberta no momento do envio
+    const statusAtual = calcularStatus(loja.horarios)
+    if (statusAtual?.tipo === 'fechado') {
+      setErros(prev => ({ ...prev, geral: 'A loja está fechada no momento. Tente novamente quando estiver aberta.' }))
+      return
+    }
+
     const enderecoSalvo = usandoSalvo
       ? enderecos.find(e => e.id === enderecoSelId)
       : undefined
+
+    // Monta string de entrega a partir dos campos estruturados
+    const partesPrincipal = [
+      form.rua.trim(),
+      form.numero.trim(),
+      form.complemento.trim(),
+    ].filter(Boolean).join(', ')
+    const enderecoNovo = partesPrincipal
+      ? `${partesPrincipal} — ${form.bairro.trim()}, ${form.cidade.trim()} — CEP ${form.cep.trim()}${form.referencia.trim() ? ` | Ref: ${form.referencia.trim()}` : ''}`
+      : ''
+
     const enderecoEntrega = enderecoSalvo
       ? composeEndereco(enderecoSalvo)
-      : form.endereco.trim()
+      : enderecoNovo
 
     const novosErros: typeof erros = {}
     if (!form.nome.trim()) novosErros.nome = 'Informe seu nome'
     if (!form.telefone.trim()) novosErros.telefone = 'Informe seu WhatsApp ou telefone'
     else if (form.telefone.replace(/\D/g, '').length < 10) novosErros.telefone = 'Número incompleto'
-    if (!enderecoEntrega) novosErros.endereco = 'Informe o endereço de entrega'
+    if (!usandoSalvo) {
+      if (!form.cep.replace(/\D/g, '').length) novosErros.cep = 'Informe o CEP'
+      else if (form.cep.replace(/\D/g, '').length !== 8) novosErros.cep = 'CEP inválido'
+      if (!form.rua.trim()) novosErros.rua = 'Informe a rua'
+      if (!form.numero.trim()) novosErros.numero = 'Informe o número'
+      else if (!/^\d+[A-Za-z]?$/.test(form.numero.trim())) novosErros.numero = 'Número inválido'
+      if (!form.bairro.trim()) novosErros.bairro = 'Informe o bairro'
+    }
 
     if (form.forma_pagamento === 'dinheiro' && form.troco_para.trim()) {
       const troco = parseFloat(form.troco_para.replace(',', '.'))
@@ -614,7 +1092,7 @@ function TelaCheckout({
         forma_pagamento: form.forma_pagamento,
         troco_para: trocoPara,
         subtotal: +subtotal.toFixed(2),
-        taxa_entrega: taxa,
+        taxa_entrega: taxaEntrega,
         total: +total.toFixed(2),
         status: 'recebido',
       })
@@ -636,10 +1114,13 @@ function TelaCheckout({
       if (errItens) throw errItens
 
       // Cliente logado optou por salvar o endereço novo digitado
-      if (cliente && !usandoSalvo && salvarEndereco && form.endereco.trim()) {
+      if (cliente && !usandoSalvo && salvarEndereco && form.rua.trim()) {
+        const enderecoBase = `${form.rua.trim()}, ${form.numero.trim()} — ${form.bairro.trim()}, ${form.cidade.trim()} — CEP ${form.cep.trim()}`
         await supabase.from('enderecos').insert({
           cliente_id: cliente.id,
-          endereco: form.endereco.trim(),
+          endereco: enderecoBase,
+          complemento: form.complemento.trim() || null,
+          referencia: form.referencia.trim() || null,
           padrao: enderecos.length === 0,
         })
         onEnderecoSalvo()
@@ -650,11 +1131,12 @@ function TelaCheckout({
         nome_cliente: form.nome.trim(),
         itens: carrinho,
         subtotal: +subtotal.toFixed(2),
-        taxa_entrega: taxa,
+        taxa_entrega: taxaEntrega,
         total: +total.toFixed(2),
         forma_pagamento: form.forma_pagamento,
         troco_para: trocoPara,
         observacoes: form.observacoes.trim() || null,
+        endereco_entrega: enderecoEntrega,
       })
     } catch (err) {
       console.error('[OdeCasa] Erro ao finalizar pedido:', err)
@@ -729,8 +1211,10 @@ function TelaCheckout({
                 </div>
                 <div className="flex justify-between text-sm text-ink-soft">
                   <span>Taxa de entrega</span>
-                  <span className={taxa === 0 ? 'text-brand-600 font-medium' : ''}>
-                    {taxa === 0 ? 'Grátis' : formatarReal(taxa)}
+                  <span className={taxaEntrega === 0 ? 'text-brand-600 font-medium' : ''}>
+                    {geoStatus.tipo === 'ok'
+                      ? `${taxaEntrega === 0 ? 'Grátis' : formatarReal(taxaEntrega)} (${geoStatus.distanciaKm.toFixed(1)} km)`
+                      : taxaEntrega === 0 ? 'Grátis' : formatarReal(taxaEntrega)}
                   </span>
                 </div>
                 <div className="flex justify-between text-base font-bold text-ink pt-1 border-t border-line">
@@ -825,22 +1309,163 @@ function TelaCheckout({
                   >
                     + Usar um novo endereço
                   </button>
+
+                  {/* Status de geo para endereço salvo */}
+                  {lojaTemGeo && enderecoSelId !== null && geoStatus.tipo !== 'idle' && (
+                    <div className="mt-1">
+                      {geoStatus.tipo === 'calculando' && (
+                        <p className="text-xs text-ink-mute animate-pulse">Calculando distância…</p>
+                      )}
+                      {geoStatus.tipo === 'fora_raio' && (
+                        <div className="flex items-start gap-2 bg-danger/10 text-danger rounded-lg p-3 text-sm leading-snug">
+                          <AlertCircle size={15} strokeWidth={1.75} className="shrink-0 mt-0.5" />
+                          <span>
+                            Endereço fora da área de entrega. A loja entrega até{' '}
+                            <strong>{loja.raio_maximo_km} km</strong>{' '}
+                            (você está a {geoStatus.distanciaKm.toFixed(1)} km).
+                          </span>
+                        </div>
+                      )}
+                      {geoStatus.tipo === 'ok' && (
+                        <p className="text-xs text-brand-600 font-medium">
+                          Distância estimada: {geoStatus.distanciaKm.toFixed(1)} km ·{' '}
+                          {geoStatus.taxa === 0 ? 'Entrega grátis' : `Taxa ${formatarReal(geoStatus.taxa)}`}
+                        </p>
+                      )}
+                      {geoStatus.tipo === 'degradado' && (
+                        <p className="text-xs text-ink-mute">
+                          Não foi possível calcular a distância — taxa padrão aplicada.
+                        </p>
+                      )}
+                    </div>
+                  )}
                 </div>
               )}
 
-              {/* Campo de endereço novo: convidado, logado sem endereços, ou logado escolhendo "novo" */}
+              {/* Campos estruturados de endereço: convidado, logado sem endereços, ou logado escolhendo "novo" */}
               {(!temEnderecosSalvos || enderecoSelId === null) && (
                 <div className="space-y-3">
+                  {/* CEP */}
+                  <div>
+                    <div className="relative">
+                      <Input
+                        id="cep"
+                        label="CEP"
+                        placeholder="00000-000"
+                        value={form.cep}
+                        onChange={e => handleCepChange(e.target.value)}
+                        autoComplete="postal-code"
+                        inputMode="numeric"
+                      />
+                      {buscandoCep && (
+                        <span className="absolute right-3 top-[38px] text-xs text-ink-mute animate-pulse">
+                          Buscando…
+                        </span>
+                      )}
+                    </div>
+                    {erros.cep && <p className="text-xs text-danger mt-1">{erros.cep}</p>}
+
+                    {/* Status de entrega por distância */}
+                    {lojaTemGeo && geoStatus.tipo !== 'idle' && (
+                      <div className="mt-2">
+                        {geoStatus.tipo === 'calculando' && (
+                          <p className="text-xs text-ink-mute animate-pulse">Calculando distância…</p>
+                        )}
+                        {geoStatus.tipo === 'fora_raio' && (
+                          <div className="flex items-start gap-2 bg-danger/10 text-danger rounded-lg p-3 text-sm leading-snug">
+                            <AlertCircle size={15} strokeWidth={1.75} className="shrink-0 mt-0.5" />
+                            <span>
+                              Endereço fora da área de entrega. A loja entrega até{' '}
+                              <strong>{loja.raio_maximo_km} km</strong>{' '}
+                              (você está a {geoStatus.distanciaKm.toFixed(1)} km).
+                            </span>
+                          </div>
+                        )}
+                        {geoStatus.tipo === 'ok' && (
+                          <p className="text-xs text-brand-600 font-medium">
+                            Distância estimada: {geoStatus.distanciaKm.toFixed(1)} km ·{' '}
+                            {geoStatus.taxa === 0 ? 'Entrega grátis' : `Taxa ${formatarReal(geoStatus.taxa)}`}
+                          </p>
+                        )}
+                        {geoStatus.tipo === 'degradado' && (
+                          <p className="text-xs text-ink-mute">
+                            Não foi possível calcular a distância exata — taxa padrão aplicada.
+                          </p>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Rua + Número */}
+                  <div className="grid grid-cols-[1fr_auto] gap-3">
+                    <div>
+                      <Input
+                        id="rua"
+                        label="Rua / Avenida"
+                        placeholder="Nome da rua"
+                        value={form.rua}
+                        onChange={e => set('rua', e.target.value)}
+                        autoComplete="address-line1"
+                      />
+                      {erros.rua && <p className="text-xs text-danger mt-1">{erros.rua}</p>}
+                    </div>
+                    <div className="w-24">
+                      <Input
+                        id="numero"
+                        label="Número"
+                        placeholder="123"
+                        value={form.numero}
+                        onChange={e => set('numero', e.target.value)}
+                        autoComplete="address-line2"
+                        inputMode="numeric"
+                      />
+                      {erros.numero && <p className="text-xs text-danger mt-1">{erros.numero}</p>}
+                    </div>
+                  </div>
+
+                  {/* Complemento */}
                   <div>
                     <Input
-                      id="endereco"
-                      label="Endereço completo"
-                      placeholder="Rua, número, bairro, complemento"
-                      value={form.endereco}
-                      onChange={e => set('endereco', e.target.value)}
-                      autoComplete="street-address"
+                      id="complemento"
+                      label={<>Complemento <span className="text-ink-mute font-normal">(opcional)</span></>}
+                      placeholder="Apto, bloco, casa…"
+                      value={form.complemento}
+                      onChange={e => set('complemento', e.target.value)}
+                      autoComplete="address-line3"
                     />
-                    {erros.endereco && <p className="text-xs text-danger mt-1">{erros.endereco}</p>}
+                  </div>
+
+                  {/* Bairro */}
+                  <div>
+                    <Input
+                      id="bairro"
+                      label="Bairro"
+                      placeholder="Nome do bairro"
+                      value={form.bairro}
+                      onChange={e => set('bairro', e.target.value)}
+                    />
+                    {erros.bairro && <p className="text-xs text-danger mt-1">{erros.bairro}</p>}
+                  </div>
+
+                  {/* Cidade (read-only, preenchida pelo ViaCEP) */}
+                  <div>
+                    <label className="block text-sm font-medium text-ink mb-1">
+                      Cidade
+                    </label>
+                    <div className="h-12 px-4 flex items-center rounded-md border border-line bg-[--color-bg] text-sm text-ink-soft">
+                      {form.cidade || <span className="text-ink-mute">Preenchida automaticamente pelo CEP</span>}
+                    </div>
+                  </div>
+
+                  {/* Ponto de referência */}
+                  <div>
+                    <Input
+                      id="referencia"
+                      label={<>Ponto de referência <span className="text-ink-mute font-normal">(opcional)</span></>}
+                      placeholder="Próximo ao mercado, portão azul…"
+                      value={form.referencia}
+                      onChange={e => set('referencia', e.target.value)}
+                    />
                   </div>
 
                   {/* Salvar endereço só faz sentido para cliente logado */}
@@ -979,7 +1604,7 @@ function TelaCheckout({
               type="submit"
               variant="primary"
               className="w-full"
-              disabled={enviando || faltaMinimo > 0}
+              disabled={enviando || faltaMinimo > 0 || geoStatus.tipo === 'fora_raio'}
             >
               {enviando ? 'Enviando pedido…' : 'Fazer pedido'}
             </Button>
@@ -1002,18 +1627,23 @@ interface TelaConfirmacaoProps {
   onVoltarLoja: () => void
 }
 
+const ETAPAS_CONFIRMACAO = [
+  { key: 'recebido',     label: 'Recebido' },
+  { key: 'preparando',   label: 'Preparando' },
+  { key: 'saiu_entrega', label: 'A caminho' },
+  { key: 'entregue',     label: 'Entregue' },
+]
+
 function TelaConfirmacao({ pedido, loja, cliente, onVoltarLoja }: TelaConfirmacaoProps) {
   const router = useRouter()
   const idCurto = pedido.id.slice(0, 8).toUpperCase()
-
-  // Convidado: convite para criar conta e acompanhar os pedidos
+  const [copiado, setCopiado] = useState(false)
   const [mostrarConvite, setMostrarConvite] = useState(!cliente)
 
-  // Cliente logado: lembra que dá pra acompanhar o status em Minha conta
-  const avisou = useRef(false)
+  const avisouRef = useRef(false)
   useEffect(() => {
-    if (!cliente || avisou.current) return
-    avisou.current = true
+    if (!cliente || avisouRef.current) return
+    avisouRef.current = true
     toast('Acompanhe seu pedido em Minha conta', {
       description: 'O status atualiza em tempo real por lá.',
       icon: <Bell size={18} strokeWidth={1.75} />,
@@ -1022,30 +1652,99 @@ function TelaConfirmacao({ pedido, loja, cliente, onVoltarLoja }: TelaConfirmaca
     })
   }, [cliente, router])
 
+  function handleCopiarId() {
+    navigator.clipboard.writeText(idCurto)
+    setCopiado(true)
+    setTimeout(() => setCopiado(false), 2000)
+  }
+
   return (
-    <div className="fixed inset-0 z-50 bg-bg flex flex-col overflow-y-auto">
-      <div className="max-w-2xl mx-auto w-full px-4 py-10 flex flex-col items-center">
+    <div className="fixed inset-0 z-50 bg-bg overflow-y-auto">
+      <div className="max-w-2xl mx-auto px-4 py-8 flex flex-col gap-5 animate-page-enter">
 
-        {/* Ícone de sucesso */}
-        <div className="w-20 h-20 rounded-full bg-brand-100 flex items-center justify-center mb-5">
-          <CheckCircle2 size={40} strokeWidth={1.5} className="text-brand-500" />
+        {/* Hero */}
+        <div className="flex flex-col items-center text-center pt-6 pb-2">
+          <div className="w-20 h-20 rounded-full bg-brand-500 flex items-center justify-center mb-5 shadow-md">
+            <CheckCircle2 size={44} strokeWidth={1.75} className="text-surface" />
+          </div>
+          <h1 className="text-3xl font-bold text-ink">Pedido confirmado!</h1>
+          <p className="text-base text-ink-soft mt-2">
+            A {loja.nome} recebeu seu pedido.
+          </p>
+          <div className="flex items-center gap-2 mt-3 bg-brand-50 rounded-full px-4 py-1.5">
+            <span className="text-sm font-semibold text-brand-700">#{idCurto}</span>
+            <button
+              onClick={handleCopiarId}
+              aria-label="Copiar número do pedido"
+              title="Copiar número do pedido"
+              className="text-brand-500 hover:text-brand-700 transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 rounded p-0.5"
+            >
+              {copiado
+                ? <Check size={14} strokeWidth={2.5} />
+                : <Copy size={14} strokeWidth={1.75} />}
+            </button>
+          </div>
         </div>
 
-        <h1 className="text-[26px] font-bold text-ink text-center">Pedido recebido!</h1>
-        <p className="text-sm text-ink-soft mt-2 text-center">
-          {loja.nome} vai preparar seu pedido em breve.
-        </p>
-
-        <div className="mt-1">
-          <span className="inline-block bg-brand-50 text-brand-700 text-xs font-semibold rounded-full px-3 py-1">
-            #{idCurto}
-          </span>
+        {/* Timeline de status */}
+        <div className="bg-surface rounded-xl px-4 py-5 shadow-sm">
+          <p className="text-sm font-semibold text-ink mb-5">Acompanhamento</p>
+          <div className="flex">
+            {ETAPAS_CONFIRMACAO.map((etapa, i) => {
+              const ativo = i === 0
+              return (
+                <div key={etapa.key} className="flex-1 flex flex-col items-center relative">
+                  {i > 0 && (
+                    <span aria-hidden="true" className="absolute top-[11px] left-[-50%] right-1/2 h-0.5 bg-line" />
+                  )}
+                  <span className={[
+                    'relative z-10 w-6 h-6 rounded-full flex items-center justify-center',
+                    ativo
+                      ? 'bg-brand-500 text-surface animate-pulse-ring'
+                      : 'bg-surface border border-line',
+                  ].join(' ')}>
+                    {ativo
+                      ? <span className="w-2 h-2 rounded-full bg-surface" />
+                      : <span className="w-1.5 h-1.5 rounded-full bg-line" />}
+                  </span>
+                  <span className={[
+                    'mt-2 text-[11px] leading-tight text-center px-0.5',
+                    ativo ? 'font-semibold text-ink' : 'text-ink-mute',
+                  ].join(' ')}>
+                    {etapa.label}
+                  </span>
+                </div>
+              )
+            })}
+          </div>
         </div>
 
-        {/* Resumo */}
-        <div className="w-full mt-8 bg-surface rounded-xl overflow-hidden shadow-sm">
+        {/* Entrega */}
+        {pedido.endereco_entrega && (
+          <div className="bg-surface rounded-xl px-4 py-4 shadow-sm">
+            <p className="text-sm font-semibold text-ink mb-3">Entrega</p>
+            <div className="flex items-start gap-3">
+              <MapPin size={16} strokeWidth={1.75} className="text-brand-500 shrink-0 mt-0.5" />
+              <div className="flex-1 min-w-0">
+                <p className="text-sm text-ink-soft leading-relaxed">{pedido.endereco_entrega}</p>
+                <a
+                  href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(pedido.endereco_entrega)}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 mt-2 text-xs font-medium text-brand-700 hover:text-brand-900 transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 rounded"
+                >
+                  <ExternalLink size={12} strokeWidth={1.75} />
+                  Ver no mapa
+                </a>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Resumo do pedido */}
+        <div className="bg-surface rounded-xl overflow-hidden shadow-sm">
           <div className="px-4 pt-4 pb-2">
-            <h2 className="text-[15px] font-semibold text-ink">Resumo</h2>
+            <p className="text-sm font-semibold text-ink">Resumo do pedido</p>
           </div>
 
           {pedido.itens.map(item => (
@@ -1073,14 +1772,11 @@ function TelaConfirmacao({ pedido, loja, cliente, onVoltarLoja }: TelaConfirmaca
                 {pedido.taxa_entrega === 0 ? 'Grátis' : formatarReal(pedido.taxa_entrega)}
               </span>
             </div>
-            <div className="flex justify-between text-base font-bold text-ink pt-1 border-t border-line">
+            <div className="flex justify-between text-base font-bold text-ink pt-2 border-t border-line">
               <span>Total</span>
               <span>{formatarReal(pedido.total)}</span>
             </div>
-          </div>
-
-          <div className="px-4 pb-4 space-y-1">
-            <div className="flex justify-between text-sm">
+            <div className="flex justify-between text-sm pt-1">
               <span className="text-ink-soft">Pagamento</span>
               <span className="text-ink font-medium">{LABEL_PAGAMENTO[pedido.forma_pagamento]}</span>
             </div>
@@ -1091,19 +1787,41 @@ function TelaConfirmacao({ pedido, loja, cliente, onVoltarLoja }: TelaConfirmaca
               </div>
             )}
             {pedido.observacoes && (
-              <div className="text-sm text-ink-soft mt-2 pt-2 border-t border-line">
+              <div className="text-sm text-ink-soft mt-2 pt-2 border-t border-line leading-relaxed">
                 <span className="font-medium text-ink">Obs:</span> {pedido.observacoes}
               </div>
             )}
           </div>
         </div>
 
-        <Button variant="secondary" className="w-full mt-6" onClick={onVoltarLoja}>
-          Voltar à loja
-        </Button>
+        {/* CTAs */}
+        <div className="flex flex-col gap-3 pb-8">
+          <Button variant="primary" className="w-full" onClick={() => router.push('/conta')}>
+            Acompanhar meu pedido
+          </Button>
+
+          {loja.whatsapp && (
+            <a
+              href={`https://wa.me/${loja.whatsapp.replace(/\D/g, '')}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center justify-center gap-2 min-h-[48px] px-5 rounded-md font-semibold text-sm bg-surface border border-line text-brand-700 hover:bg-brand-50 active:scale-[0.98] transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+            >
+              <MessageCircle size={18} strokeWidth={1.75} />
+              Falar com a loja
+            </a>
+          )}
+
+          <button
+            onClick={onVoltarLoja}
+            className="inline-flex items-center justify-center min-h-[44px] px-5 text-sm font-semibold text-brand-700 hover:text-brand-900 hover:bg-brand-50 rounded-md transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+          >
+            Voltar à loja
+          </button>
+        </div>
       </div>
 
-      {/* Convidado: convite para criar conta e acompanhar os pedidos */}
+      {/* Convidado: convite para criar conta */}
       {mostrarConvite && (
         <div
           className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center bg-ink/40 px-4 py-6"
@@ -1113,7 +1831,7 @@ function TelaConfirmacao({ pedido, loja, cliente, onVoltarLoja }: TelaConfirmaca
           onClick={() => setMostrarConvite(false)}
         >
           <div
-            className="w-full max-w-sm bg-surface rounded-xl shadow-lg p-6 relative"
+            className="animate-modal-in w-full max-w-sm bg-surface rounded-xl shadow-lg p-6 relative"
             onClick={e => e.stopPropagation()}
           >
             <button
@@ -1132,8 +1850,7 @@ function TelaConfirmacao({ pedido, loja, cliente, onVoltarLoja }: TelaConfirmaca
               Acompanhe seu pedido
             </h2>
             <p className="text-sm text-ink-soft mt-1.5 leading-relaxed">
-              Crie sua conta para acompanhar o status dos seus pedidos em tempo real,
-              direto em Minha conta.
+              Crie sua conta para ver o status do pedido em tempo real, direto em Minha conta.
             </p>
 
             <div className="flex flex-col gap-2 mt-5">
@@ -1165,10 +1882,15 @@ export default function PaginaLoja() {
   const [loja, setLoja]             = useState<Loja | null | undefined>(undefined)
   const [categorias, setCategorias] = useState<Categoria[]>([])
   const [produtos, setProdutos]     = useState<Produto[]>([])
+  const [topProdutosIds, setTopProdutosIds] = useState<Set<string>>(new Set())
+  const [topProdutosOrdem, setTopProdutosOrdem] = useState<string[]>([])
+  const [mediaAvaliacoes, setMediaAvaliacoes] = useState<{ media: number; total: number } | null>(null)
   const [filtro, setFiltro]         = useState<Filtro>(null)
   const [busca, setBusca]           = useState('')
   const [carrinho, dispatch]        = useReducer(carrinhoReducer, [])
   const [drawerAberto, setDrawerAberto] = useState(false)
+  const [drawerInfoAberto, setDrawerInfoAberto] = useState(false)
+  const [scrolled, setScrolled]     = useState(false)
   const [etapa, setEtapa]           = useState<Etapa>('loja')
   const [pedidoConfirmado, setPedidoConfirmado] = useState<PedidoConfirmado | null>(null)
   const [cliente, setCliente]       = useState<Cliente | null>(null)
@@ -1235,7 +1957,7 @@ export default function PaginaLoja() {
         supabase.from('categorias').select('*').eq('loja_id', lojaData.id).order('ordem'),
         supabase
           .from('produtos')
-          .select('id,loja_id,categoria_id,nome,descricao,preco,unidade,foto_url,disponivel')
+          .select('*')
           .eq('loja_id', lojaData.id)
           .eq('disponivel', true)
           .order('nome'),
@@ -1243,6 +1965,53 @@ export default function PaginaLoja() {
 
       setCategorias((cats as Categoria[]) ?? [])
       setProdutos((prods as Produto[]) ?? [])
+
+      // Busca média de avaliações da loja (exibe se >= 5 avaliações)
+      try {
+        const { data: avalData, count } = await supabase
+          .from('avaliacoes')
+          .select('nota', { count: 'exact' })
+          .eq('loja_id', lojaData.id)
+        if (count && count >= 1 && avalData && avalData.length > 0) {
+          const soma = (avalData as { nota: number }[]).reduce((acc, a) => acc + a.nota, 0)
+          setMediaAvaliacoes({ media: soma / count, total: count })
+        }
+      } catch {
+        // degrade silently
+      }
+
+      // Busca top 3 produtos mais vendidos (sem polling — atualiza na próxima visita)
+      try {
+        const { data: pedidosData } = await supabase
+          .from('pedidos')
+          .select('id')
+          .eq('loja_id', lojaData.id)
+          .neq('status', 'cancelado')
+
+        const pedidoIds = (pedidosData ?? []).map((p: { id: string }) => p.id)
+
+        if (pedidoIds.length > 0) {
+          const { data: itensData } = await supabase
+            .from('itens_pedido')
+            .select('produto_id, quantidade')
+            .in('pedido_id', pedidoIds)
+
+          if (itensData && itensData.length > 0) {
+            const totais = new Map<string, number>()
+            for (const item of itensData as { produto_id: string; quantidade: number }[]) {
+              totais.set(item.produto_id, (totais.get(item.produto_id) ?? 0) + Number(item.quantidade))
+            }
+            const top3 = [...totais.entries()]
+              .sort((a, b) => b[1] - a[1])
+              .slice(0, 3)
+              .map(([id]) => id)
+            setTopProdutosIds(new Set(top3))
+            setTopProdutosOrdem(top3)
+          }
+        }
+      } catch {
+        // degrade silently — sem badge em nenhum produto
+      }
     }
 
     init()
@@ -1251,6 +2020,12 @@ export default function PaginaLoja() {
   useEffect(() => {
     if (carrinho.length === 0) setDrawerAberto(false)
   }, [carrinho.length])
+
+  useEffect(() => {
+    function onScroll() { setScrolled(window.scrollY > 10) }
+    window.addEventListener('scroll', onScroll, { passive: true })
+    return () => window.removeEventListener('scroll', onScroll)
+  }, [])
 
   /* "Pedir de novo" (?repetir=<pedidoId>): recoloca no carrinho só os
      itens daquele pedido cujos produtos ainda estão disponíveis. */
@@ -1323,10 +2098,7 @@ export default function PaginaLoja() {
     )
   }
 
-  const entrega =
-    loja.taxa_entrega === 0
-      ? 'Entrega grátis'
-      : `Entrega ${formatarReal(loja.taxa_entrega)}`
+  const entrega = labelEntrega(loja)
 
   const catsComProdutos = categorias.filter(c => produtos.some(p => p.categoria_id === c.id))
   const temOutros = produtos.some(p => !p.categoria_id)
@@ -1355,43 +2127,35 @@ export default function PaginaLoja() {
       {/* ── Barra superior ───────────────────────── */}
       <TopBar
         width="reading"
+        className={scrolled
+          ? 'transition-all duration-200 !bg-white/80 backdrop-blur-sm shadow-sm'
+          : 'transition-all duration-200'
+        }
         left={
           <div className="flex items-center gap-2.5 min-w-0">
-            {loja.logo_url && (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={loja.logo_url}
-                alt={loja.nome}
-                className="w-8 h-8 rounded-full object-cover shrink-0 border border-line"
-              />
-            )}
+            <div className="w-12 h-12 rounded-full shrink-0 overflow-hidden border border-line bg-brand-100 flex items-center justify-center">
+              {loja.logo_url ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={loja.logo_url}
+                  alt={loja.nome}
+                  className="w-full h-full object-cover"
+                />
+              ) : (
+                <span className="text-lg font-bold text-brand-700 select-none leading-none">
+                  {loja.nome.charAt(0).toUpperCase()}
+                </span>
+              )}
+            </div>
             <p className="text-base font-semibold text-ink truncate">{loja.nome}</p>
           </div>
         }
         right={
           <>
-            {/* Sininho de notificações (aparece só para cliente logado) */}
+            {/* Sininho de notificações */}
             <NotificationBell />
 
-            {/* Conta do cliente: Entrar quando deslogado, Minha conta quando logado */}
-            {cliente ? (
-              <Link
-                href="/conta"
-                className="inline-flex items-center gap-1.5 h-9 px-3 rounded-full text-sm font-medium text-brand-700 hover:bg-brand-50 transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
-              >
-                <User size={16} strokeWidth={1.75} />
-                Minha conta
-              </Link>
-            ) : (
-              <Link
-                href={`/entrar?redirect=${encodeURIComponent(`/loja/${slug}`)}`}
-                className="inline-flex items-center gap-1.5 h-9 px-3 rounded-full text-sm font-medium text-brand-700 hover:bg-brand-50 transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
-              >
-                <User size={16} strokeWidth={1.75} />
-                Entrar
-              </Link>
-            )}
-
+            {/* Carrinho com badge */}
             <button
               onClick={() => totalItens > 0 && setDrawerAberto(true)}
               aria-label={totalItens > 0
@@ -1406,46 +2170,164 @@ export default function PaginaLoja() {
                 </span>
               )}
             </button>
+
+            {/* Perfil: ícone circular, mesmo tamanho do carrinho */}
+            <Link
+              href={cliente ? '/conta' : `/entrar?redirect=${encodeURIComponent(`/loja/${slug}`)}`}
+              aria-label={cliente ? 'Minha conta' : 'Entrar'}
+              title={cliente ? 'Minha conta' : 'Entrar'}
+              className="relative w-11 h-11 flex items-center justify-center rounded-full hover:bg-brand-50 transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+            >
+              <User size={22} strokeWidth={1.75} className="text-ink" />
+              {cliente && (
+                <span className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 bg-brand-500 rounded-full border-2 border-surface" />
+              )}
+            </Link>
           </>
         }
       />
 
-      {/* ── Cabeçalho da loja ────────────────────── */}
+      {/* ── Hero da loja ─────────────────────────── */}
       <div className="bg-surface border-b border-line">
-        <PageContainer size="reading" className="py-5">
-          <h1 className="text-[22px] font-bold text-ink">{loja.nome}</h1>
+        <PageContainer size="reading" className="py-6">
+          <div className="flex items-start gap-3">
+            <h1 className="text-3xl font-bold text-ink flex-1 leading-tight">{loja.nome}</h1>
 
-          {loja.endereco && (
-            <p className="flex items-start gap-1.5 text-sm text-ink-soft mt-2">
-              <MapPin size={14} strokeWidth={1.75} className="mt-0.5 shrink-0" />
-              {loja.endereco}
-            </p>
-          )}
+            {mediaAvaliacoes && loja.avaliacoes_ativas && (
+              <Link
+                href={`/loja/${loja.slug}/avaliacoes`}
+                className="shrink-0 flex flex-col items-center bg-brand-50 border border-brand-100 rounded-xl px-3 py-2 hover:bg-brand-100 transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+              >
+                <span className="text-xl font-bold text-brand-700 leading-none">
+                  {mediaAvaliacoes.media.toFixed(1)}
+                </span>
+                <div className="flex items-center gap-0.5 mt-1">
+                  {[1, 2, 3, 4, 5].map(i => (
+                    <Star
+                      key={i}
+                      size={11}
+                      strokeWidth={1.5}
+                      className={i <= Math.round(mediaAvaliacoes.media) ? 'text-accent fill-accent' : 'text-line fill-transparent'}
+                    />
+                  ))}
+                </div>
+                <span className="text-[11px] text-ink-mute mt-0.5 leading-none">
+                  {mediaAvaliacoes.total} aval.
+                </span>
+              </Link>
+            )}
+          </div>
+
+          {(() => {
+            const s = calcularStatus(loja.horarios)
+            if (!s) return null
+            return s.tipo === 'aberto' ? (
+              <p className="text-sm font-medium text-brand-600 mt-1">
+                🟢 Aberto agora · fecha às {s.fecha}
+              </p>
+            ) : (
+              <p className="text-sm font-medium text-danger mt-1">
+                🔴 Fechado · abre {s.dia ? `${s.dia} ` : ''}{s.abre}
+              </p>
+            )
+          })()}
 
           <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-2">
-            <span className="inline-flex items-center gap-1.5 text-sm font-medium text-brand-600">
-              <Truck size={14} strokeWidth={1.75} />
-              {entrega}
-            </span>
+            {loja.endereco && (
+              <span className="inline-flex items-center gap-1.5 text-sm text-ink-soft">
+                <MapPin size={14} strokeWidth={1.75} />
+                {loja.endereco}
+              </span>
+            )}
             {loja.pedido_minimo != null && loja.pedido_minimo > 0 && (
               <span className="text-sm text-ink-soft">
                 Pedido mínimo {formatarReal(loja.pedido_minimo)}
               </span>
             )}
+            <span className="inline-flex items-center gap-1.5 text-sm font-medium text-brand-600">
+              <Truck size={14} strokeWidth={1.75} />
+              {entrega}
+            </span>
+            {loja.tempo_entrega_min != null && (
+              <span className="text-sm text-ink-soft">
+                ⏱ {loja.tempo_entrega_min}–{loja.tempo_entrega_min + 15} min
+              </span>
+            )}
+          </div>
+
+          <div className="flex flex-wrap gap-2 mt-4">
+            <button
+              onClick={() => setDrawerInfoAberto(true)}
+              className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-md border border-line bg-surface text-sm font-medium text-ink-soft hover:bg-brand-50 hover:text-brand-700 hover:border-brand-200 active:scale-[0.98] transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+            >
+              <Info size={15} strokeWidth={1.75} />
+              Ver informações
+            </button>
+
+            {loja.whatsapp && (
+              <a
+                href={`https://wa.me/${loja.whatsapp.replace(/\D/g, '')}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-md border border-line bg-surface text-sm font-medium text-ink-soft hover:bg-brand-50 hover:text-brand-700 hover:border-brand-200 active:scale-[0.98] transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+              >
+                <MessageCircle size={15} strokeWidth={1.75} />
+                Falar no WhatsApp
+              </a>
+            )}
+
           </div>
         </PageContainer>
       </div>
 
+      {/* ── Campo de busca (entre hero e pills) ─────── */}
+      {produtos.length > 0 && (
+        <div className="bg-bg border-b border-line">
+          <div className="max-w-2xl mx-auto px-4 py-3">
+            <div className="relative">
+              <Search
+                size={18}
+                strokeWidth={1.75}
+                className="absolute left-3.5 top-1/2 -translate-y-1/2 text-ink-mute pointer-events-none"
+              />
+              <input
+                type="search"
+                inputMode="search"
+                value={busca}
+                onChange={e => setBusca(e.target.value)}
+                placeholder="Buscar produto..."
+                aria-label="Buscar produto"
+                className={[
+                  'w-full h-11 rounded-full border border-line bg-surface pl-10 pr-4',
+                  'text-sm text-ink placeholder:text-ink-mute',
+                  'outline-none transition-shadow duration-150',
+                  'focus:ring-2 focus:ring-brand-500 focus:border-transparent',
+                ].join(' ')}
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ── Chips de categoria ────────────────────── */}
       {chips.length > 1 && (
-        <div className="sticky top-14 z-30 bg-surface border-b border-line">
+        <div className="sticky top-14 z-20 bg-surface border-b border-line">
           <div className="max-w-2xl mx-auto">
             <div className="flex gap-2 overflow-x-auto px-4 py-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
               {chips.map(chip => (
                 <Chip
                   key={chip.id ?? 'todos'}
                   selected={filtro === chip.id}
-                  onClick={() => setFiltro(chip.id)}
+                  variant="solid"
+                  onClick={() => {
+                    setFiltro(chip.id)
+                    if (chip.id !== null) {
+                      setTimeout(() => {
+                        document.getElementById(`cat-${chip.id}`)
+                          ?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+                      }, 50)
+                    }
+                  }}
                 >
                   {chip.nome}
                 </Chip>
@@ -1459,70 +2341,61 @@ export default function PaginaLoja() {
       <main className="pb-28">
         <PageContainer size="reading">
 
-          {/* Busca por nome/descrição — no cliente, em tempo real */}
-          {produtos.length > 0 && (
-            <div className="pt-4">
-              <div className="relative">
-                <Search
-                  size={18}
-                  strokeWidth={1.75}
-                  className="absolute left-3.5 top-1/2 -translate-y-1/2 text-ink-mute pointer-events-none"
-                />
-                <input
-                  type="search"
-                  inputMode="search"
-                  value={busca}
-                  onChange={e => setBusca(e.target.value)}
-                  placeholder="Buscar produto"
-                  aria-label="Buscar produto"
-                  className={[
-                    'w-full h-11 rounded-full border border-line bg-surface pl-10 pr-4',
-                    'text-sm text-ink placeholder:text-ink-mute',
-                    'outline-none transition-shadow duration-150',
-                    'focus:ring-2 focus:ring-brand-500 focus:border-transparent',
-                  ].join(' ')}
-                />
-              </div>
-            </div>
-          )}
-
           {produtos.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-20 text-center">
               <ShoppingBag size={48} strokeWidth={1.25} className="text-ink-mute mb-4" />
               <p className="text-base font-semibold text-ink">Nenhum produto disponível</p>
-              <p className="text-sm text-ink-soft mt-1">Esta loja ainda não tem produtos.</p>
+              <p className="text-sm text-ink-soft mt-1">Esta loja ainda não adicionou produtos.</p>
             </div>
           ) : secoes.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-20 text-center">
               <SearchX size={48} strokeWidth={1.25} className="text-ink-mute mb-4" />
-              <p className="text-base font-semibold text-ink">Nenhum produto encontrado</p>
+              <p className="text-base font-semibold text-ink">
+                {busca ? `Nada encontrado para "${busca}"` : 'Nenhum produto encontrado'}
+              </p>
               <p className="text-sm text-ink-soft mt-1 mb-5">Tente outro termo ou categoria.</p>
               <Button variant="secondary" onClick={handleLimparBusca}>
                 Limpar busca e filtro
               </Button>
             </div>
           ) : (
-            secoes.map(secao => (
-              <section key={secao.id} id={`cat-${secao.id}`} className="mt-6 scroll-mt-36">
-                <SectionTitle className="mb-3">{secao.nome}</SectionTitle>
-                <div className="grid grid-cols-2 gap-3">
-                  {secao.itens.map(p => (
-                    <CardProduto
-                      key={p.id}
-                      produto={p}
-                      itemCarrinho={carrinho.find(i => i.id === p.id)}
-                      dispatch={dispatch}
-                    />
-                  ))}
-                </div>
-              </section>
-            ))
+            <>
+              {!busca && !filtro && topProdutosOrdem.length > 0 && (
+                <SecaoDestaques
+                  produtos={produtos}
+                  topProdutosOrdem={topProdutosOrdem}
+                  carrinho={carrinho}
+                  dispatch={dispatch}
+                />
+              )}
+              {secoes.map(secao => (
+                <section key={secao.id} id={`cat-${secao.id}`} className="mt-6 scroll-mt-32">
+                  <SectionTitle className="mb-3">{secao.nome}</SectionTitle>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                    {secao.itens.map(p => (
+                      <CardProduto
+                        key={p.id}
+                        produto={p}
+                        itemCarrinho={carrinho.find(i => i.id === p.id)}
+                        dispatch={dispatch}
+                        isMaisVendido={topProdutosIds.has(p.id)}
+                      />
+                    ))}
+                  </div>
+                </section>
+              ))}
+            </>
           )}
         </PageContainer>
       </main>
 
       {/* ── Barra de carrinho ────────────────────── */}
       <BarraCarrinho itens={carrinho} onAbrir={() => setDrawerAberto(true)} />
+
+      {/* ── Drawer de informações da loja ────────── */}
+      {drawerInfoAberto && (
+        <DrawerInfo loja={loja} onFechar={() => setDrawerInfoAberto(false)} />
+      )}
 
       {/* ── Drawer do carrinho ───────────────────── */}
       {drawerAberto && (

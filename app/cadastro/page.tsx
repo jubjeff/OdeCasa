@@ -1,7 +1,6 @@
 'use client'
 
 import { useState } from 'react'
-import Image from 'next/image'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import { Button } from '@/components/ui/Button'
@@ -47,15 +46,12 @@ export default function Cadastro() {
   return (
     <main className="flex min-h-screen items-center justify-center bg-bg px-4">
       <div className="w-full max-w-sm">
-        <Image
-          src="/odecasa-logo.png"
-          alt="ÔdeCasa"
-          width={200}
-          height={80}
-          style={{ height: 'auto' }}
-          className="mx-auto block"
-          priority
-        />
+        <div className="flex flex-col items-center leading-none mb-6">
+          <span className="text-4xl font-bold">
+            <span className="text-ink">Ôde</span><span className="text-brand-500">Casa</span>
+          </span>
+          <span className="text-sm font-medium text-ink-mute tracking-wide mt-1">delivery</span>
+        </div>
         <Card bodyClassName="p-8">
           <h1 className="text-[22px] font-bold text-ink mb-6">Criar conta</h1>
 

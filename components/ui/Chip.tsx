@@ -2,10 +2,12 @@ import { ButtonHTMLAttributes } from 'react'
 
 interface ChipProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   selected?: boolean
+  /** 'default': brand-100/brand-700 quando selecionado. 'solid': brand-500/branco. */
+  variant?: 'default' | 'solid'
 }
 
-/** Pílula de categoria/filtro em rolagem horizontal. Selecionado = brand-100/700. */
-export function Chip({ selected = false, className = '', children, ...props }: ChipProps) {
+/** Pílula de categoria/filtro em rolagem horizontal. */
+export function Chip({ selected = false, variant = 'default', className = '', children, ...props }: ChipProps) {
   return (
     <button
       type="button"
@@ -14,7 +16,9 @@ export function Chip({ selected = false, className = '', children, ...props }: C
         'transition-colors duration-150',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500',
         selected
-          ? 'bg-brand-100 text-brand-700'
+          ? variant === 'solid'
+            ? 'bg-brand-500 text-surface'
+            : 'bg-brand-100 text-brand-700'
           : 'bg-surface border border-line text-ink-soft hover:bg-brand-50',
         className,
       ].join(' ')}

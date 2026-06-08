@@ -1,12 +1,13 @@
 'use client'
 
-import { useEffect, useState } from 'react'
-import Image from 'next/image'
+import { Suspense, useEffect, useState } from 'react'
 import Link from 'next/link'
-import { usePathname, useRouter } from 'next/navigation'
+import { usePathname, useSearchParams } from 'next/navigation'
 import {
-  LayoutDashboard, ClipboardList, Package, Tags, User, Menu, X, LogOut,
+  LayoutDashboard, ClipboardList, Package, Tags, User, Menu, X,
+  Sun, Moon, ExternalLink, Copy, Check,
 } from 'lucide-react'
+import { useTheme } from 'next-themes'
 import { supabase } from '@/lib/supabase'
 
 /* ── Navegação ───────────────────────────────────── */
@@ -14,21 +15,52 @@ import { supabase } from '@/lib/supabase'
 const NAV = [
   { href: '/painel',            label: 'Painel',      icon: LayoutDashboard, titulo: 'Painel' },
   { href: '/painel/pedidos',    label: 'Pedidos',     icon: ClipboardList,   titulo: 'Pedidos' },
-  { href: '/painel/produtos',   label: 'Produtos',    icon: Package,         titulo: 'Produtos' },
   { href: '/painel/categorias', label: 'Categorias',  icon: Tags,            titulo: 'Categorias' },
-  { href: '/conta',             label: 'Minha conta', icon: User,            titulo: 'Minha conta' },
+  { href: '/painel/produtos',   label: 'Produtos',    icon: Package,         titulo: 'Produtos' },
+  { href: '/painel/conta',      label: 'Minha conta', icon: User,            titulo: 'Minha conta' },
 ] as const
+
+const TAB_LABELS: Record<string, string> = {
+  perfil: 'Perfil',
+  loja: 'Loja',
+  entrega: 'Entrega',
+  horarios: 'Horários',
+  pagamentos: 'Pagamentos',
+  avaliacoes: 'Avaliações',
+}
+
+/* ── Breadcrumb (precisa de useSearchParams → Suspense) ── */
+
+function HeaderBreadcrumb({ pathname }: { pathname: string }) {
+  const searchParams = useSearchParams()
+  const tab = searchParams.get('tab')
+  const navTitulo = NAV.find(n => n.href === pathname)?.titulo ?? 'Painel'
+
+  if (pathname === '/painel/conta' && tab && TAB_LABELS[tab]) {
+    return (
+      <h1 className="text-base font-semibold text-ink flex-1 truncate">
+        <span className="font-normal text-ink-soft">Minha conta</span>
+        <span className="mx-1.5 text-ink-mute">›</span>
+        {TAB_LABELS[tab]}
+      </h1>
+    )
+  }
+
+  return <h1 className="text-base font-semibold text-ink flex-1 truncate">{navTitulo}</h1>
+}
+
+/* ── Layout ──────────────────────────────────────── */
 
 export default function PainelLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
-  const router = useRouter()
 
   const [nomeLoja, setNomeLoja]   = useState('')
+  const [slugLoja, setSlugLoja]   = useState('')
   const [recebidos, setRecebidos] = useState(0)
-  const [drawerAberto, setDrawerAberto]   = useState(false) // mobile (overlay)
-  const [desktopAberto, setDesktopAberto] = useState(true)  // desktop (sidebar fixa)
+  const [copiado, setCopiado]     = useState(false)
+  const [drawerAberto, setDrawerAberto]   = useState(false)
+  const [desktopAberto, setDesktopAberto] = useState(true)
 
-  /* Email do dono + contagem de pedidos 'recebido' (badge) */
   useEffect(() => {
     let ativo = true
     async function carregar() {
@@ -37,11 +69,14 @@ export default function PainelLayout({ children }: { children: React.ReactNode }
 
       const { data: loja } = await supabase
         .from('lojas')
-        .select('id, nome')
+        .select('id, nome, slug')
         .eq('dono_id', user.id)
         .maybeSingle()
 
-      if (ativo) setNomeLoja(loja?.nome ?? '')
+      if (ativo) {
+        setNomeLoja(loja?.nome ?? '')
+        setSlugLoja(loja?.slug ?? '')
+      }
 
       if (loja?.id && ativo) {
         const { count } = await supabase
@@ -56,26 +91,24 @@ export default function PainelLayout({ children }: { children: React.ReactNode }
     return () => { ativo = false }
   }, [pathname])
 
-  /* Fecha o drawer ao trocar de rota */
   useEffect(() => { setDrawerAberto(false) }, [pathname])
 
-  async function handleSair() {
-    await supabase.auth.signOut()
-    router.push('/login')
-  }
+  const { resolvedTheme, setTheme } = useTheme()
+  const [mounted, setMounted] = useState(false)
+  useEffect(() => setMounted(true), [])
 
-  const titulo = NAV.find(n => n.href === pathname)?.titulo ?? 'Painel'
-
-  /* Conteúdo interno da sidebar (reaproveitado no desktop e no drawer) */
   const sidebarInner = (
     <div className="flex flex-col h-full">
       <div className="h-14 flex items-center justify-between px-4 border-b border-line shrink-0">
         <Link
           href="/painel"
           aria-label="Ir para o painel"
-          className="flex items-center rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+          className="flex flex-col leading-none rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
         >
-          <Image src="/odecasa-logo.png" alt="ÔdeCasa" width={36} height={36} priority />
+          <span className="text-lg font-bold">
+            <span className="text-ink">Ôde</span><span className="text-brand-500">Casa</span>
+          </span>
+          <span className="text-[11px] font-medium text-ink-mute tracking-wide">delivery</span>
         </Link>
         <button
           onClick={() => setDrawerAberto(false)}
@@ -88,7 +121,10 @@ export default function PainelLayout({ children }: { children: React.ReactNode }
 
       <nav className="flex-1 p-3 flex flex-col gap-1">
         {NAV.map(item => {
-          const ativo = pathname === item.href
+          // /painel só ativa na rota exata; as demais ativam em qualquer sub-rota
+          const ativoExato = item.href === '/painel'
+            ? pathname === '/painel'
+            : pathname === item.href || pathname.startsWith(item.href + '/')
           const Icone = item.icon
           return (
             <Link
@@ -98,7 +134,7 @@ export default function PainelLayout({ children }: { children: React.ReactNode }
                 'flex items-center gap-3 h-11 px-3 rounded-md text-sm font-medium',
                 'transition-colors duration-150',
                 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500',
-                ativo
+                ativoExato
                   ? 'bg-brand-50 text-brand-700'
                   : 'text-ink-soft hover:bg-brand-50 hover:text-ink',
               ].join(' ')}
@@ -106,7 +142,7 @@ export default function PainelLayout({ children }: { children: React.ReactNode }
               <Icone
                 size={18}
                 strokeWidth={1.75}
-                className={ativo ? 'text-brand-700' : 'text-ink-mute'}
+                className={ativoExato ? 'text-brand-700' : 'text-ink-mute'}
               />
               <span className="flex-1">{item.label}</span>
               {item.href === '/painel/pedidos' && recebidos > 0 && (
@@ -118,13 +154,49 @@ export default function PainelLayout({ children }: { children: React.ReactNode }
           )
         })}
       </nav>
+
+      {slugLoja && (
+        <div className="p-3 border-t border-line shrink-0">
+          <div className="rounded-xl bg-brand-50 border border-brand-200 px-3 py-3 flex flex-col gap-2">
+            <div className="flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-brand-500 shrink-0" />
+              <span className="text-xs font-semibold text-brand-700 truncate">Sua loja está no ar</span>
+            </div>
+            <p className="text-[11px] text-ink-mute truncate">/loja/{slugLoja}</p>
+            <div className="flex gap-1.5">
+              <button
+                onClick={() => {
+                  const link = `${window.location.origin}/loja/${slugLoja}`
+                  navigator.clipboard.writeText(link)
+                  setCopiado(true)
+                  setTimeout(() => setCopiado(false), 2000)
+                }}
+                title="Copiar link"
+                className="flex-1 flex items-center justify-center gap-1 h-8 rounded-md border border-line bg-surface text-xs font-medium text-ink-soft hover:text-brand-700 hover:border-brand-300 transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+              >
+                {copiado ? <Check size={13} strokeWidth={2.5} className="text-brand-600" /> : <Copy size={13} strokeWidth={1.75} />}
+                {copiado ? 'Copiado' : 'Copiar'}
+              </button>
+              <a
+                href={`/loja/${slugLoja}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                title="Ver minha loja"
+                className="flex-1 flex items-center justify-center gap-1 h-8 rounded-md bg-brand-500 text-xs font-semibold text-surface hover:bg-brand-600 transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+              >
+                <ExternalLink size={12} strokeWidth={2} />
+                Ver loja
+              </a>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 
   return (
     <div className="min-h-screen bg-bg flex">
 
-      {/* Sidebar fixa (desktop) — recolhível pelo hambúrguer */}
       <aside
         className={[
           'w-60 shrink-0 flex-col border-r border-line bg-surface sticky top-0 h-screen',
@@ -134,7 +206,6 @@ export default function PainelLayout({ children }: { children: React.ReactNode }
         {sidebarInner}
       </aside>
 
-      {/* Drawer (mobile) */}
       {drawerAberto && (
         <div className="md:hidden fixed inset-0 z-50 flex" role="dialog" aria-modal="true">
           <div className="absolute inset-0 bg-ink/40" onClick={() => setDrawerAberto(false)} aria-hidden="true" />
@@ -144,13 +215,10 @@ export default function PainelLayout({ children }: { children: React.ReactNode }
         </div>
       )}
 
-      {/* Área de conteúdo */}
       <div className="flex-1 min-w-0 flex flex-col">
 
-        {/* Header do conteúdo */}
         <header className="sticky top-0 z-30 bg-surface border-b border-line">
           <div className="h-14 px-4 flex items-center gap-3">
-            {/* Hambúrguer mobile: abre o drawer */}
             <button
               onClick={() => setDrawerAberto(true)}
               aria-label="Abrir menu"
@@ -159,7 +227,6 @@ export default function PainelLayout({ children }: { children: React.ReactNode }
               <Menu size={20} strokeWidth={1.75} className="text-ink" />
             </button>
 
-            {/* Hambúrguer desktop: recolhe/abre a sidebar fixa */}
             <button
               onClick={() => setDesktopAberto(o => !o)}
               aria-label={desktopAberto ? 'Recolher menu' : 'Abrir menu'}
@@ -169,20 +236,33 @@ export default function PainelLayout({ children }: { children: React.ReactNode }
               <Menu size={20} strokeWidth={1.75} className="text-ink" />
             </button>
 
-            <h1 className="text-base font-semibold text-ink flex-1 truncate">{titulo}</h1>
+            {/* Breadcrumb / título — usa Suspense por conta do useSearchParams */}
+            <Suspense fallback={
+              <h1 className="text-base font-semibold text-ink flex-1 truncate">
+                {NAV.find(n => n.href === pathname)?.titulo ?? 'Painel'}
+              </h1>
+            }>
+              <HeaderBreadcrumb pathname={pathname} />
+            </Suspense>
 
             {nomeLoja && (
               <span className="hidden sm:block text-sm font-medium text-ink truncate max-w-[200px]">
                 {nomeLoja}
               </span>
             )}
-            <button
-              onClick={handleSair}
-              className="inline-flex items-center gap-1.5 text-sm font-medium text-danger hover:text-danger/80 transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 rounded px-2 py-1 shrink-0"
-            >
-              <LogOut size={16} strokeWidth={1.75} />
-              Sair
-            </button>
+
+            {mounted && (
+              <button
+                onClick={() => setTheme(resolvedTheme === 'dark' ? 'light' : 'dark')}
+                aria-label={resolvedTheme === 'dark' ? 'Ativar modo claro' : 'Ativar modo escuro'}
+                title={resolvedTheme === 'dark' ? 'Modo claro' : 'Modo escuro'}
+                className="w-10 h-10 flex items-center justify-center rounded-full hover:bg-brand-50 transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 shrink-0"
+              >
+                {resolvedTheme === 'dark'
+                  ? <Sun size={18} strokeWidth={1.75} className="text-ink-soft" />
+                  : <Moon size={18} strokeWidth={1.75} className="text-ink-soft" />}
+              </button>
+            )}
           </div>
         </header>
 

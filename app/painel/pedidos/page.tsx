@@ -2,13 +2,14 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { RefreshCw, ChevronDown, ChevronUp, Phone, MapPin, Volume2, VolumeX, MessageCircle, ArrowRight, Ban } from 'lucide-react'
+import { RefreshCw, ChevronDown, ChevronUp, Phone, MapPin, Volume2, VolumeX, MessageCircle, ArrowRight, Ban, Star, ExternalLink } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { Button } from '@/components/ui/Button'
 import { StatusBadge, type OrderStatus } from '@/components/ui/StatusBadge'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { IconButton } from '@/components/ui/IconButton'
 import { Skeleton } from '@/components/ui/Skeleton'
+import { Chip } from '@/components/ui/Chip'
 import { toast } from 'sonner'
 import {
   DndContext, DragOverlay, useDraggable, useDroppable,
@@ -43,6 +44,8 @@ interface ItemPedido {
   subtotal: number
 }
 
+type FiltroData = 'hoje' | 'ontem' | '7dias'
+
 /* ── Constantes ──────────────────────────────────── */
 
 const COLUNAS: { status: OrderStatus; titulo: string; corDot: string }[] = [
@@ -52,6 +55,9 @@ const COLUNAS: { status: OrderStatus; titulo: string; corDot: string }[] = [
   { status: 'entregue',    titulo: 'Entregue',           corDot: 'bg-brand-500' },
   { status: 'cancelado',   titulo: 'Cancelado',          corDot: 'bg-danger'    },
 ]
+
+const STATUS_ATIVOS: OrderStatus[]     = ['recebido', 'preparando', 'saiu_entrega']
+const STATUS_FINALIZADOS: OrderStatus[] = ['entregue', 'cancelado']
 
 const PROXIMO: Partial<Record<OrderStatus, { status: OrderStatus; label: string }>> = {
   recebido:    { status: 'preparando',   label: 'Iniciar preparo'   },
@@ -81,7 +87,50 @@ const LABEL_WHATSAPP: Record<OrderStatus, string> = {
   cancelado:   'Avisar: cancelado',
 }
 
-/* ── Helpers ─────────────────────────────────────── */
+const CHIPS_FILTRO: { value: FiltroData; label: string }[] = [
+  { value: 'hoje',  label: 'Hoje'        },
+  { value: 'ontem', label: 'Ontem'       },
+  { value: '7dias', label: 'Últimos 7 dias' },
+]
+
+/* ── Exibição somente-leitura de estrelas ────────── */
+
+function EstrelaDisplay({ nota }: { nota: number }) {
+  return (
+    <div className="flex items-center gap-0.5">
+      {[1, 2, 3, 4, 5].map(n => (
+        <Star
+          key={n}
+          size={13}
+          strokeWidth={1.5}
+          className={n <= nota ? 'text-accent fill-accent' : 'text-line fill-transparent'}
+        />
+      ))}
+    </div>
+  )
+}
+
+/* ── Helpers de data ─────────────────────────────── */
+
+function inicioDoDia(offsetDias = 0): Date {
+  const d = new Date()
+  d.setHours(0, 0, 0, 0)
+  if (offsetDias !== 0) d.setDate(d.getDate() + offsetDias)
+  return d
+}
+
+function rangeParaFiltro(filtro: FiltroData): { gte: string; lt?: string } {
+  switch (filtro) {
+    case 'hoje':
+      return { gte: inicioDoDia().toISOString() }
+    case 'ontem':
+      return { gte: inicioDoDia(-1).toISOString(), lt: inicioDoDia().toISOString() }
+    case '7dias':
+      return { gte: inicioDoDia(-6).toISOString() }
+  }
+}
+
+/* ── Helpers gerais ──────────────────────────────── */
 
 function formatarReal(valor: number): string {
   return valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
@@ -147,7 +196,6 @@ function tempoDecorrido(min: number): string {
   return m ? `há ${h}h${String(m).padStart(2, '0')}` : `há ${h}h`
 }
 
-/* Faixa de urgência (só em pedidos ativos): <20min verde, 20–40 accent, >40 danger */
 function corUrgencia(min: number, status: OrderStatus): string {
   if (status !== 'recebido' && status !== 'preparando') return ''
   if (min > 40) return 'border-l-4 border-danger'
@@ -155,7 +203,6 @@ function corUrgencia(min: number, status: OrderStatus): string {
   return 'border-l-4 border-brand-500'
 }
 
-/* Botão de ação em ícone (tooltip nativo via title) */
 function AcaoIcone({
   title, onClick, disabled, danger, children,
 }: {
@@ -196,6 +243,7 @@ interface CardPedidoProps {
   nomeLoja: string
   whatsappRealcado: boolean
   agora: number
+  avaliacao?: { nota: number; comentario: string | null }
   onToggle: () => void
   onAvancar: (novoStatus: OrderStatus) => void
   onIniciarCancelar: () => void
@@ -203,7 +251,7 @@ interface CardPedidoProps {
 
 function CardPedido({
   pedido, itens, loadingItens, expandido, atualizandoStatus, novo,
-  nomeLoja, whatsappRealcado, agora,
+  nomeLoja, whatsappRealcado, agora, avaliacao,
   onToggle, onAvancar, onIniciarCancelar,
 }: CardPedidoProps) {
   const proximo = PROXIMO[pedido.status]
@@ -222,7 +270,6 @@ function CardPedido({
       novo ? 'bg-brand-100 shadow-md ring-2 ring-brand-300' : 'bg-surface shadow-sm hover:shadow-md',
     ].join(' ')}>
 
-      {/* Resumo escaneável (clicável para expandir) */}
       <button
         onClick={onToggle}
         aria-expanded={expandido}
@@ -252,7 +299,6 @@ function CardPedido({
         </div>
       </button>
 
-      {/* Ações em ícone (tooltip via title) */}
       <div className="flex items-center gap-1 px-3 pb-2.5">
         {podeAvancar && (
           <AcaoIcone
@@ -306,11 +352,8 @@ function CardPedido({
         </button>
       </div>
 
-      {/* Detalhes expandidos */}
       {expandido && (
         <div className="border-t border-line px-4 pb-4 pt-3 space-y-4">
-
-          {/* Itens */}
           <div>
             <p className="text-xs font-semibold text-ink-soft mb-2">Itens do pedido</p>
             {loadingItens ? (
@@ -345,11 +388,21 @@ function CardPedido({
             )}
           </div>
 
-          {/* Detalhes de entrega */}
           <div className="space-y-2">
             <div className="flex items-start gap-2">
               <MapPin size={13} strokeWidth={1.75} className="text-ink-mute shrink-0 mt-0.5" />
-              <p className="text-sm text-ink-soft leading-snug">{pedido.endereco_entrega}</p>
+              <p className="text-sm text-ink-soft leading-snug flex-1">{pedido.endereco_entrega}</p>
+              {pedido.endereco_entrega && (
+                <a
+                  href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(pedido.endereco_entrega)}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  title="Ver no mapa"
+                  className="shrink-0 w-7 h-7 flex items-center justify-center rounded text-ink-mute hover:text-brand-700 hover:bg-brand-50 transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+                >
+                  <ExternalLink size={13} strokeWidth={1.75} />
+                </a>
+              )}
             </div>
             <div className="flex items-center gap-2">
               <Phone size={13} strokeWidth={1.75} className="text-ink-mute shrink-0" />
@@ -373,6 +426,18 @@ function CardPedido({
               </p>
             )}
           </div>
+
+          {avaliacao && (
+            <div className="border-t border-line pt-3 space-y-1">
+              <p className="text-xs font-semibold text-ink-soft">Avaliação do cliente</p>
+              <EstrelaDisplay nota={avaliacao.nota} />
+              {avaliacao.comentario && (
+                <p className="text-xs text-ink-soft leading-relaxed italic">
+                  &ldquo;{avaliacao.comentario}&rdquo;
+                </p>
+              )}
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -410,6 +475,7 @@ interface KanbanColunaProps {
   nomeLoja: string
   whatsappRealcado: Set<string>
   agora: number
+  avaliacoesPorPedido: Record<string, { nota: number; comentario: string | null }>
   onToggle: (id: string) => void
   onAvancar: (id: string, status: OrderStatus) => void
   onIniciarCancelar: (id: string) => void
@@ -418,14 +484,13 @@ interface KanbanColunaProps {
 function KanbanColuna({
   status, titulo, corDot, pedidos,
   expandido, itensPorPedido, loadingItens, atualizandoStatus, novosIds,
-  nomeLoja, whatsappRealcado, agora,
+  nomeLoja, whatsappRealcado, agora, avaliacoesPorPedido,
   onToggle, onAvancar, onIniciarCancelar,
 }: KanbanColunaProps) {
   const { setNodeRef, isOver } = useDroppable({ id: status })
 
   return (
     <div className="w-72 shrink-0 flex flex-col gap-2">
-      {/* Cabeçalho da coluna */}
       <div className="flex items-center gap-2 px-0.5 pb-1">
         <span className={`w-2 h-2 rounded-full ${corDot} shrink-0`} aria-hidden="true" />
         <span className="text-sm font-semibold text-ink">{titulo}</span>
@@ -434,7 +499,6 @@ function KanbanColuna({
         </span>
       </div>
 
-      {/* Área droppable */}
       <div
         ref={setNodeRef}
         className={[
@@ -459,6 +523,7 @@ function KanbanColuna({
                 nomeLoja={nomeLoja}
                 whatsappRealcado={whatsappRealcado.has(p.id)}
                 agora={agora}
+                avaliacao={avaliacoesPorPedido[p.id]}
                 onToggle={() => onToggle(p.id)}
                 onAvancar={status => onAvancar(p.id, status)}
                 onIniciarCancelar={() => onIniciarCancelar(p.id)}
@@ -482,22 +547,25 @@ export default function PainelPedidos() {
   const [carregando, setCarregando]   = useState(true)
   const [atualizando, setAtualizando] = useState(false)
 
+  const [filtroData, setFiltroData] = useState<FiltroData>('hoje')
+  /* ref para o intervalo de 30 s não capturar estado stale */
+  const filtroDataRef = useRef<FiltroData>('hoje')
+
   const [expandido, setExpandido]     = useState<string | null>(null)
   const [itensPorPedido, setItensPorPedido]   = useState<Record<string, ItemPedido[]>>({})
   const [loadingItens, setLoadingItens]       = useState<Record<string, boolean>>({})
   const [atualizandoStatus, setAtualizandoStatus] = useState<string | null>(null)
+  const [avaliacoesPorPedido, setAvaliacoesPorPedido] = useState<Record<string, { nota: number; comentario: string | null }>>({})
   const [confirmCancelar, setConfirmCancelar] = useState<string | null>(null)
   const [novosIds, setNovosIds]               = useState<Set<string>>(new Set())
   const [whatsappRealcado, setWhatsappRealcado] = useState<Set<string>>(new Set())
 
-  /* Drag-and-drop entre colunas */
   const [arrastandoId, setArrastandoId] = useState<string | null>(null)
   const sensors = useSensors(
     useSensor(MouseSensor, { activationConstraint: { distance: 8 } }),
     useSensor(TouchSensor, { activationConstraint: { delay: 250, tolerance: 8 } }),
   )
 
-  /* Relógio para o "tempo decorrido" — atualiza a cada 30s */
   const [agora, setAgora] = useState(() => Date.now())
   useEffect(() => {
     const t = setInterval(() => setAgora(Date.now()), 30_000)
@@ -507,11 +575,8 @@ export default function PainelPedidos() {
   /* ── Áudio ───────────────────────────────────────── */
   const audioCtxRef = useRef<AudioContext | null>(null)
   const [somAtivo, setSomAtivo] = useState(false)
-
-  /* IDs conhecidos no momento do carregamento inicial; null = ainda não carregou */
   const pedidosConhecidosRef = useRef<Set<string> | null>(null)
 
-  /* useCallback vazio = referência estável; audioCtxRef é um ref, logo sem deps */
   const tocarDing = useCallback(() => {
     const ctx = audioCtxRef.current
     if (!ctx || ctx.state === 'closed') return
@@ -531,14 +596,13 @@ export default function PainelPedidos() {
         osc.start(t + inicio)
         osc.stop(t + fim)
       }
-      nota(880,  0,    0.30, 0.28)  /* A5  — primeiro toque  */
-      nota(1109, 0.12, 0.55, 0.22)  /* C#6 — segundo toque   */
+      nota(880,  0,    0.30, 0.28)
+      nota(1109, 0.12, 0.55, 0.22)
     }
 
     if (ctx.state === 'running') {
       play()
     } else {
-      /* 'suspended': acontece quando a aba vai para segundo plano */
       ctx.resume().then(play).catch(() => {})
     }
   }, [])
@@ -557,27 +621,65 @@ export default function PainelPedidos() {
     }
   }
 
-  const carregarPedidos = useCallback(async (id: string) => {
-    const { data } = await supabase
+  /* ── Query com filtro de data ────────────────────── */
+
+  const carregarPedidos = useCallback(async (id: string, filtro: FiltroData) => {
+    const range = rangeParaFiltro(filtro)
+
+    // Pedidos ativos: sempre exibir, independente da data
+    let queryAtivos = supabase
       .from('pedidos')
       .select('*')
       .eq('loja_id', id)
+      .in('status', STATUS_ATIVOS)
       .order('criado_em', { ascending: false })
-    if (!data) return
-    setPedidos(data as Pedido[])
 
-    // Carrega os itens de todos os pedidos (para o resumo no card)
-    const ids = (data as Pedido[]).map(p => p.id)
+    // Pedidos finalizados: apenas no intervalo selecionado
+    let queryFinalizados = supabase
+      .from('pedidos')
+      .select('*')
+      .eq('loja_id', id)
+      .in('status', STATUS_FINALIZADOS)
+      .gte('criado_em', range.gte)
+      .order('criado_em', { ascending: false })
+
+    if (range.lt) {
+      queryFinalizados = queryFinalizados.lt('criado_em', range.lt)
+    }
+
+    const [{ data: ativos }, { data: finalizados }] = await Promise.all([
+      queryAtivos,
+      queryFinalizados,
+    ])
+
+    const todos = [...(ativos ?? []), ...(finalizados ?? [])]
+      .sort((a, b) => new Date(b.criado_em).getTime() - new Date(a.criado_em).getTime())
+
+    setPedidos(todos as Pedido[])
+
+    // Carrega itens de todos os pedidos para o resumo no card
+    const ids = todos.map(p => p.id)
     if (ids.length > 0) {
-      const { data: itensData } = await supabase
-        .from('itens_pedido')
-        .select('*')
-        .in('pedido_id', ids)
+      const entregueIds = todos.filter(p => p.status === 'entregue').map(p => p.id)
+
+      const [{ data: itensData }, { data: avalData }] = await Promise.all([
+        supabase.from('itens_pedido').select('*').in('pedido_id', ids),
+        entregueIds.length > 0
+          ? supabase.from('avaliacoes').select('pedido_id,nota,comentario').in('pedido_id', entregueIds)
+          : Promise.resolve({ data: [] }),
+      ])
+
       const mapa: Record<string, ItemPedido[]> = {}
       for (const it of (itensData as ItemPedido[] | null) ?? []) {
         (mapa[it.pedido_id] ??= []).push(it)
       }
       setItensPorPedido(mapa)
+
+      const avalMapa: Record<string, { nota: number; comentario: string | null }> = {}
+      for (const a of (avalData as { pedido_id: string; nota: number; comentario: string | null }[] | null) ?? []) {
+        avalMapa[a.pedido_id] = { nota: a.nota, comentario: a.comentario }
+      }
+      setAvaliacoesPorPedido(avalMapa)
     }
   }, [])
 
@@ -599,12 +701,19 @@ export default function PainelPedidos() {
 
       setLojaId(lojaData.id)
       setNomeLoja(lojaData.nome ?? '')
-      await carregarPedidos(lojaData.id)
+      await carregarPedidos(lojaData.id, 'hoje')
       setCarregando(false)
     }
 
     init()
   }, [router, carregarPedidos])
+
+  /* Recarrega quando o filtro de data muda */
+  useEffect(() => {
+    filtroDataRef.current = filtroData
+    if (lojaId) carregarPedidos(lojaId, filtroData)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filtroData])
 
   /* Realtime — trata INSERT/UPDATE/DELETE individualmente */
   useEffect(() => {
@@ -618,6 +727,7 @@ export default function PainelPedidos() {
         (payload) => {
           if (payload.eventType === 'INSERT') {
             const entrante = payload.new as Pedido
+            // Novos pedidos são sempre ativos → sempre visíveis
             setPedidos(prev =>
               prev.some(p => p.id === entrante.id) ? prev : [entrante, ...prev]
             )
@@ -637,24 +747,18 @@ export default function PainelPedidos() {
     return () => { supabase.removeChannel(channel) }
   }, [lojaId])
 
-  /* Refresh automático a cada 30 s — fallback caso o realtime falhe */
+  /* Refresh automático a cada 30 s — usa ref para ler o filtro atual sem stale closure */
   useEffect(() => {
     if (!lojaId) return
-    const timer = setInterval(() => carregarPedidos(lojaId), 30_000)
+    const timer = setInterval(() => carregarPedidos(lojaId, filtroDataRef.current), 30_000)
     return () => clearInterval(timer)
   }, [lojaId, carregarPedidos])
 
-  /*
-   * Detecta pedidos novos em qualquer atualização da lista
-   * (realtime INSERT, polling de 30 s ou botão Atualizar).
-   * Toca o ding e aplica o destaque visual para cada pedido
-   * que não existia na última vez que a lista foi observada.
-   */
+  /* Detecta pedidos novos */
   useEffect(() => {
     const idsAtuais = new Set(pedidos.map(p => p.id))
 
     if (pedidosConhecidosRef.current === null) {
-      /* Primeira carga: registra os IDs existentes sem tocar nada */
       pedidosConhecidosRef.current = idsAtuais
       return
     }
@@ -664,7 +768,6 @@ export default function PainelPedidos() {
 
     if (novos.length === 0) return
 
-    /* Destaque visual por 4 s com fade de 700 ms */
     setNovosIds(prev => {
       const s = new Set(prev)
       novos.forEach(p => s.add(p.id))
@@ -676,14 +779,13 @@ export default function PainelPedidos() {
       }, 4000)
     })
 
-    /* Som */
     tocarDing()
   }, [pedidos, tocarDing])
 
   async function handleAtualizar() {
     if (!lojaId) return
     setAtualizando(true)
-    await carregarPedidos(lojaId)
+    await carregarPedidos(lojaId, filtroDataRef.current)
     setAtualizando(false)
   }
 
@@ -704,7 +806,6 @@ export default function PainelPedidos() {
 
   async function handleAvancarStatus(pedidoId: string, novoStatus: OrderStatus, mensagemSucesso?: string) {
     setAtualizandoStatus(pedidoId)
-    /* Atualização otimista — move o card imediatamente */
     setPedidos(prev => prev.map(p => p.id === pedidoId ? { ...p, status: novoStatus } : p))
 
     const { error } = await supabase
@@ -714,15 +815,14 @@ export default function PainelPedidos() {
 
     if (error) {
       console.error('[OdeCasa] Erro ao atualizar status:', error)
-      if (lojaId) carregarPedidos(lojaId) /* reverte em caso de falha */
+      if (lojaId) carregarPedidos(lojaId, filtroDataRef.current)
       toast.error('Não foi possível atualizar o pedido')
     } else {
-      /* Realça o botão WhatsApp por 5 s para lembrar de avisar o cliente */
       setWhatsappRealcado(prev => { const s = new Set(prev); s.add(pedidoId); return s })
       setTimeout(() => {
         setWhatsappRealcado(prev => { const s = new Set(prev); s.delete(pedidoId); return s })
       }, 5000)
-      toast.success(mensagemSucesso ?? `Pedido marcado como “${LABEL_STATUS[novoStatus]}”`)
+      toast.success(mensagemSucesso ?? `Pedido marcado como "${LABEL_STATUS[novoStatus]}"`)
     }
     setAtualizandoStatus(null)
   }
@@ -741,12 +841,17 @@ export default function PainelPedidos() {
     const origem = active.data.current?.status as OrderStatus | undefined
     const destino = over.id as OrderStatus
     if (!destino || destino === origem) return
-    // Cancelar continua passando pelo modal de confirmação
     if (destino === 'cancelado') { setConfirmCancelar(pedidoId); return }
-    handleAvancarStatus(pedidoId, destino, `Pedido #${idCurto(pedidoId)} movido para “${LABEL_STATUS[destino]}”`)
+    handleAvancarStatus(pedidoId, destino, `Pedido #${idCurto(pedidoId)} movido para "${LABEL_STATUS[destino]}"`)
   }
 
   const pedidoArrastado = arrastandoId ? pedidos.find(p => p.id === arrastandoId) : null
+
+  /* Contador "pedidos hoje" — sempre calculado com base na data real de hoje */
+  const inicioDeDiaHoje = inicioDoDia()
+  const pedidosHoje = pedidos.filter(p =>
+    new Date(p.criado_em) >= inicioDeDiaHoje && p.status !== 'cancelado'
+  ).length
 
   /* ── Estados de carregamento / erro ──────────────── */
 
@@ -788,36 +893,52 @@ export default function PainelPedidos() {
   return (
     <div className="flex flex-col">
 
-      {/* Toolbar de ações da página (navegação fica na sidebar) */}
-      <div className="px-4 h-12 flex items-center justify-end gap-1 border-b border-line bg-surface">
-        {/* Indicador / botão de som */}
-        {somAtivo ? (
-          <div
-            aria-label="Som de pedidos ativo"
-            className="w-10 h-10 flex items-center justify-center"
-          >
-            <Volume2 size={18} strokeWidth={1.75} className="text-brand-500" />
-          </div>
-        ) : (
-          <IconButton onClick={handleAtivarSom} aria-label="Ativar som de pedidos">
-            <VolumeX size={18} strokeWidth={1.75} className="text-ink-mute" />
-          </IconButton>
-        )}
+      {/* Toolbar: ações + filtro de data */}
+      <div className="px-4 py-2 flex flex-wrap items-center gap-3 border-b border-line bg-surface">
 
-        <IconButton
-          onClick={handleAtualizar}
-          disabled={atualizando}
-          aria-label="Atualizar pedidos"
-        >
-          <RefreshCw
-            size={18}
-            strokeWidth={1.75}
-            className={`text-ink ${atualizando ? 'animate-spin' : ''}`}
-          />
-        </IconButton>
+        {/* Chips de filtro de data */}
+        <div className="flex items-center gap-1.5 flex-1 min-w-0">
+          {CHIPS_FILTRO.map(c => (
+            <Chip
+              key={c.value}
+              selected={filtroData === c.value}
+              variant="solid"
+              onClick={() => setFiltroData(c.value)}
+            >
+              {c.label}
+            </Chip>
+          ))}
+        </div>
+
+        {/* Contador de hoje */}
+        <span className="text-sm font-medium text-ink-soft shrink-0">
+          <span className="font-bold text-ink">{pedidosHoje}</span>{' '}
+          {pedidosHoje === 1 ? 'pedido hoje' : 'pedidos hoje'}
+        </span>
+
+        {/* Botões vol + refresh */}
+        <div className="flex items-center gap-1 shrink-0">
+          {somAtivo ? (
+            <div aria-label="Som de pedidos ativo" className="w-10 h-10 flex items-center justify-center">
+              <Volume2 size={18} strokeWidth={1.75} className="text-brand-500" />
+            </div>
+          ) : (
+            <IconButton onClick={handleAtivarSom} aria-label="Ativar som de pedidos">
+              <VolumeX size={18} strokeWidth={1.75} className="text-ink-mute" />
+            </IconButton>
+          )}
+
+          <IconButton onClick={handleAtualizar} disabled={atualizando} aria-label="Atualizar pedidos">
+            <RefreshCw
+              size={18}
+              strokeWidth={1.75}
+              className={`text-ink ${atualizando ? 'animate-spin' : ''}`}
+            />
+          </IconButton>
+        </div>
       </div>
 
-      {/* Banner de ativação de som — desaparece após ativar */}
+      {/* Banner de ativação de som */}
       {!somAtivo && (
         <div className="bg-brand-50 border-b border-line px-4 py-2.5 flex items-center gap-3">
           <VolumeX size={15} strokeWidth={1.75} className="text-brand-600 shrink-0" />
@@ -833,7 +954,7 @@ export default function PainelPedidos() {
         </div>
       )}
 
-      {/* Kanban — rolagem horizontal com drag-and-drop */}
+      {/* Kanban */}
       <DndContext
         sensors={sensors}
         collisionDetection={closestCorners}
@@ -858,6 +979,7 @@ export default function PainelPedidos() {
                 nomeLoja={nomeLoja}
                 whatsappRealcado={whatsappRealcado}
                 agora={agora}
+                avaliacoesPorPedido={avaliacoesPorPedido}
                 onToggle={handleToggle}
                 onAvancar={handleAvancarStatus}
                 onIniciarCancelar={id => setConfirmCancelar(id)}
@@ -866,7 +988,6 @@ export default function PainelPedidos() {
           </div>
         </div>
 
-        {/* Prévia semitransparente durante o arraste */}
         <DragOverlay>
           {pedidoArrastado ? (
             <div className="w-72 bg-surface rounded-xl shadow-lg ring-2 ring-brand-300 p-4 rotate-1">
@@ -881,7 +1002,6 @@ export default function PainelPedidos() {
         </DragOverlay>
       </DndContext>
 
-      {/* Diálogo de confirmação de cancelamento */}
       {confirmCancelar && (
         <ConfirmDialog
           mensagem="Tem certeza que deseja cancelar este pedido? Essa ação não pode ser desfeita."

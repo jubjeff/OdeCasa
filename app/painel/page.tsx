@@ -3,391 +3,275 @@
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { ImageIcon, Check, Copy, Lock } from 'lucide-react'
+import {
+  Check, Copy, ShoppingBag, DollarSign, Receipt, Star, Lock, Settings, Eye, EyeOff,
+} from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { Button } from '@/components/ui/Button'
-import { Input } from '@/components/ui/Input'
 import { Card } from '@/components/ui/Card'
 import { PageContainer } from '@/components/ui/PageContainer'
 import { SectionTitle } from '@/components/ui/SectionTitle'
 import { StatusBadge, type OrderStatus } from '@/components/ui/StatusBadge'
+import { StoreInfoCard, type Loja } from '@/components/account/StoreInfoCard'
 import { toast } from 'sonner'
 
 /* ── Tipos ─────────────────────────────────────────────── */
 
-interface Loja {
+interface KpiDia {
+  count: number
+  total: number
+}
+
+interface PedidoAndamento {
   id: string
-  dono_id: string
-  nome: string
-  slug: string
-  whatsapp: string | null
-  endereco: string | null
-  taxa_entrega: number
-  pedido_minimo: number | null
-  ativo: boolean
-  logo_url: string | null
-  chave_pix: string | null
+  total: number
+  status: OrderStatus
+  criado_em: string
+  nome_cliente: string
 }
 
-interface FormValues {
+interface TopProduto {
   nome: string
-  slug: string
-  whatsapp: string
-  endereco: string
-  taxa_entrega: string
-  pedido_minimo: string
-  chave_pix: string
+  qtd: number
 }
 
-type Feedback = { tipo: 'sucesso' | 'erro'; texto: string }
+interface AvaliacaoRow {
+  id: string
+  nota: number
+  comentario: string | null
+  criado_em: string
+  profiles: { nome: string | null } | { nome: string | null }[] | null
+}
 
 /* ── Helpers ────────────────────────────────────────────── */
-
-const FORM_VAZIO: FormValues = {
-  nome: '',
-  slug: '',
-  whatsapp: '',
-  endereco: '',
-  taxa_entrega: '0',
-  pedido_minimo: '',
-  chave_pix: '',
-}
-
-function gerarSlug(nome: string): string {
-  return nome
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[̀-ͯ]/g, '') // remove acentos
-    .replace(/[^a-z0-9\s]/g, '')     // remove caracteres especiais
-    .trim()
-    .replace(/\s+/g, '-')            // espaços → hífens
-}
-
-function lojaParaForm(l: Loja): FormValues {
-  return {
-    nome: l.nome,
-    slug: l.slug,
-    whatsapp: l.whatsapp ?? '',
-    endereco: l.endereco ?? '',
-    taxa_entrega: String(l.taxa_entrega),
-    pedido_minimo: l.pedido_minimo != null ? String(l.pedido_minimo) : '',
-    chave_pix: l.chave_pix ?? '',
-  }
-}
 
 function formatarReal(valor: number): string {
   return valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 }
 
-function aplicarMascaraTelefone(valor: string): string {
-  const d = valor.replace(/\D/g, '').slice(0, 11)
-  if (d.length === 0) return ''
-  if (d.length <= 2) return `(${d}`
-  if (d.length <= 6) return `(${d.slice(0, 2)}) ${d.slice(2)}`
-  if (d.length <= 10) return `(${d.slice(0, 2)}) ${d.slice(2, 6)}-${d.slice(6)}`
-  return `(${d.slice(0, 2)}) ${d.slice(2, 7)}-${d.slice(7)}`
+function mascararNome(nome: string | null | undefined): string {
+  if (!nome?.trim()) return 'Cliente'
+  const partes = nome.trim().split(/\s+/)
+  if (partes.length === 1) return partes[0]
+  return `${partes[0]} ${partes[partes.length - 1][0]}.`
 }
 
-/* ── Formulário (criar e editar) ────────────────────────── */
+type Variacao =
+  | { novo: true }
+  | { novo: false; texto: string; positiva: boolean }
+  | null
 
-interface LojaFormProps {
-  userId: string
-  loja: Loja | null   // null = criar, Loja = editar
-  onSalvo: (loja: Loja) => void
-  onCancelar?: () => void
+function calcVariacao(hoje: number, ontem: number): Variacao {
+  if (ontem === 0 && hoje > 0) return { novo: true }
+  if (ontem === 0) return null
+  const pct = Math.round(((hoje - ontem) / ontem) * 100)
+  return { novo: false, texto: pct >= 0 ? `↑ ${pct}%` : `↓ ${Math.abs(pct)}%`, positiva: pct >= 0 }
 }
 
-function LojaForm({ userId, loja, onSalvo, onCancelar }: LojaFormProps) {
-  const [form, setForm] = useState<FormValues>(
-    loja ? lojaParaForm(loja) : FORM_VAZIO
+/* ── Bloco KPI ──────────────────────────────────────────── */
+
+function VariacaoBadge({ v }: { v: Variacao }) {
+  if (!v) return null
+  if (v.novo) {
+    return <span className="text-xs font-medium text-ink-mute">Novo</span>
+  }
+  return (
+    <span className={`text-xs font-semibold ${v.positiva ? 'text-brand-600' : 'text-danger'}`}>
+      {v.texto}
+    </span>
   )
-  // Se estamos editando, o slug já existe: não sobrescrever ao digitar nome
-  const [slugManual, setSlugManual] = useState(loja !== null)
-  const [salvando, setSalvando] = useState(false)
-  const [feedback, setFeedback] = useState<Feedback | null>(null)
+}
 
-  function handleNome(valor: string) {
-    setForm(prev => ({
-      ...prev,
-      nome: valor,
-      ...(slugManual ? {} : { slug: gerarSlug(valor) }),
-    }))
-  }
+function KpiCards({ hoje, ontem, oculto }: { hoje: KpiDia; ontem: KpiDia; oculto: boolean }) {
+  const ticketHoje   = hoje.count  > 0 ? hoje.total / hoje.count   : null
+  const ticketOntem  = ontem.count > 0 ? ontem.total / ontem.count : null
+  const mascarar = (v: string) => oculto ? '••••' : v
 
-  function handleSlug(valor: string) {
-    setSlugManual(true)
-    setForm(prev => ({ ...prev, slug: valor }))
-  }
-
-  function handleCampo(campo: Exclude<keyof FormValues, 'nome' | 'slug'>) {
-    return (e: React.ChangeEvent<HTMLInputElement>) =>
-      setForm(prev => ({ ...prev, [campo]: e.target.value }))
-  }
-
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault()
-    setSalvando(true)
-    setFeedback(null)
-
-    const payload = {
-      nome: form.nome.trim(),
-      slug: form.slug.trim(),
-      whatsapp: form.whatsapp.trim() || null,
-      endereco: form.endereco.trim() || null,
-      taxa_entrega: parseFloat(form.taxa_entrega) || 0,
-      pedido_minimo: form.pedido_minimo ? parseFloat(form.pedido_minimo) : null,
-      chave_pix: form.chave_pix.trim() || null,
-    }
-
-    const { error } = loja
-      ? await supabase.from('lojas').update(payload).eq('id', loja.id)
-      : await supabase.from('lojas').insert({ ...payload, dono_id: userId, ativo: true })
-
-    if (error) {
-      setFeedback({
-        tipo: 'erro',
-        texto:
-          error.code === '23505'
-            ? 'Esse endereço de loja já está em uso, escolha outro.'
-            : error.message,
-      })
-      setSalvando(false)
-      return
-    }
-
-    // Rebuscar para pegar os dados completos (evita chamar .select() após .insert())
-    const { data } = await supabase
-      .from('lojas')
-      .select('*')
-      .eq('dono_id', userId)
-      .maybeSingle()
-
-    setSalvando(false)
-
-    if (data) {
-      onSalvo(data as Loja)
-    } else {
-      setFeedback({ tipo: 'erro', texto: 'Erro ao carregar os dados salvos.' })
-    }
-  }
+  const cards = [
+    {
+      label: 'Pedidos hoje',
+      valor: mascarar(String(hoje.count)),
+      icone: <ShoppingBag size={18} strokeWidth={1.75} className="text-brand-500" />,
+      variacao: calcVariacao(hoje.count, ontem.count),
+      atalho: '/painel/pedidos',
+    },
+    {
+      label: 'Faturamento do dia',
+      valor: mascarar(formatarReal(hoje.total)),
+      icone: <DollarSign size={18} strokeWidth={1.75} className="text-brand-500" />,
+      variacao: calcVariacao(hoje.total, ontem.total),
+      atalho: '/painel/conta?tab=loja',
+    },
+    {
+      label: 'Ticket médio',
+      valor: mascarar(ticketHoje != null ? formatarReal(ticketHoje) : '—'),
+      icone: <Receipt size={18} strokeWidth={1.75} className="text-brand-500" />,
+      variacao: ticketHoje != null && ticketOntem != null
+        ? calcVariacao(ticketHoje, ticketOntem)
+        : ticketHoje != null && ontem.count === 0
+          ? ({ novo: true }) as Variacao
+          : null,
+      atalho: null,
+    },
+  ]
 
   return (
-    <Card bodyClassName="p-6">
-      <h2 className="text-[18px] font-semibold text-ink mb-5">
-        {loja ? 'Editar loja' : 'Criar minha loja'}
-      </h2>
+    <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
+      {cards.map(c => (
+        <Card key={c.label} bodyClassName="p-4">
+          <div className="flex items-center justify-between mb-2">
+            {c.icone}
+            <VariacaoBadge v={c.variacao} />
+          </div>
+          <p className="text-2xl font-bold text-ink leading-tight">{c.valor}</p>
+          <div className="flex items-center justify-between mt-1">
+            <p className="text-xs text-ink-mute">{c.label}</p>
+            {c.atalho && (
+              <Link
+                href={c.atalho}
+                aria-label={`Configurar ${c.label}`}
+                className="text-ink-mute hover:text-ink-soft transition-colors duration-150 rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+              >
+                <Settings size={12} strokeWidth={1.75} />
+              </Link>
+            )}
+          </div>
+        </Card>
+      ))}
+    </div>
+  )
+}
 
-      <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-        <Input
-          label="Nome da loja"
-          id="nome"
-          value={form.nome}
-          onChange={e => handleNome(e.target.value)}
-          placeholder="Ex.: Pizza do João"
-          required
-        />
+/* ── Pedidos em andamento ───────────────────────────────── */
 
-        <div className="flex flex-col gap-1.5">
-          <Input
-            label="Endereço da loja (URL)"
-            id="slug"
-            value={form.slug}
-            onChange={e => handleSlug(e.target.value)}
-            placeholder="pizza-do-joao"
-            required
-          />
-          <p className="text-xs text-ink-mute">
-            Gerado automaticamente a partir do nome. Só letras, números e hífens.
-          </p>
-        </div>
+function formatarHora(iso: string): string {
+  return new Date(iso).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+}
 
-        <Input
-          label="WhatsApp"
-          id="whatsapp"
-          type="tel"
-          inputMode="tel"
-          value={form.whatsapp}
-          onChange={e => setForm(prev => ({ ...prev, whatsapp: aplicarMascaraTelefone(e.target.value) }))}
-          placeholder="(11) 99999-9999"
-        />
+function PedidosAndamento({ pedidos }: { pedidos: PedidoAndamento[] }) {
+  const mostrar = pedidos.slice(0, 5)
+  const temMais = pedidos.length > 5
 
-        <Input
-          label="Endereço"
-          id="endereco"
-          value={form.endereco}
-          onChange={handleCampo('endereco')}
-          placeholder="Rua, número, bairro"
-        />
+  return (
+    <Card bodyClassName="p-4">
+      <div className="flex items-center justify-between mb-3">
+        <SectionTitle>Pedidos em andamento</SectionTitle>
+        <Link
+          href="/painel/pedidos"
+          className="text-sm font-medium text-brand-600 hover:text-brand-700 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 rounded"
+        >
+          Ver pedidos
+        </Link>
+      </div>
 
-        <div className="flex flex-col gap-1.5">
-          <Input
-            label="Chave Pix"
-            id="chave_pix"
-            value={form.chave_pix}
-            onChange={handleCampo('chave_pix')}
-            placeholder="CPF, telefone, e-mail ou chave aleatória"
-          />
-          <p className="text-xs text-ink-mute">
-            Opcional. Exibida no checkout quando o cliente escolher Pix.
-          </p>
-        </div>
-
-        <div className="grid grid-cols-2 gap-4">
-          <Input
-            label="Taxa de entrega (R$)"
-            id="taxa_entrega"
-            type="number"
-            min="0"
-            step="0.01"
-            value={form.taxa_entrega}
-            onChange={handleCampo('taxa_entrega')}
-          />
-          <Input
-            label="Pedido mínimo (R$)"
-            id="pedido_minimo"
-            type="number"
-            min="0"
-            step="0.01"
-            value={form.pedido_minimo}
-            onChange={handleCampo('pedido_minimo')}
-            placeholder="Opcional"
-          />
-        </div>
-
-        {feedback && (
-          <p className={`text-sm ${feedback.tipo === 'sucesso' ? 'text-brand-600' : 'text-danger'}`}>
-            {feedback.texto}
-          </p>
-        )}
-
-        <div className="flex gap-3 mt-1">
-          <Button type="submit" disabled={salvando} className="flex-1">
-            {salvando ? 'Salvando...' : 'Salvar loja'}
-          </Button>
-          {onCancelar && (
-            <Button type="button" variant="secondary" onClick={onCancelar}>
-              Cancelar
-            </Button>
+      {mostrar.length === 0 ? (
+        <p className="text-sm text-ink-mute py-4 text-center">Nenhum pedido em andamento agora.</p>
+      ) : (
+        <div className="flex flex-col divide-y divide-line">
+          {mostrar.map(p => (
+            <div key={p.id} className="flex items-center gap-2 py-2.5 first:pt-0 last:pb-0">
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium text-ink truncate">{p.nome_cliente}</p>
+                <p className="text-xs text-ink-mute">{formatarHora(p.criado_em)}</p>
+              </div>
+              <span className="text-sm font-semibold text-brand-700 shrink-0">{formatarReal(p.total)}</span>
+              <StatusBadge status={p.status} />
+            </div>
+          ))}
+          {temMais && (
+            <div className="pt-2.5">
+              <Link
+                href="/painel/pedidos"
+                className="text-sm font-medium text-brand-600 hover:text-brand-700 transition-colors"
+              >
+                Ver todos ({pedidos.length})
+              </Link>
+            </div>
           )}
         </div>
-      </form>
+      )}
     </Card>
   )
 }
 
-/* ── Exibição dos dados da loja ─────────────────────────── */
+/* ── Top 5 produtos da semana ───────────────────────────── */
 
-interface LojaInfoProps {
-  loja: Loja
-  onEditar: () => void
-  onLogoAtualizada: (url: string | null) => void
-}
-
-function LojaInfo({ loja, onEditar, onLogoAtualizada }: LojaInfoProps) {
-  const [enviandoLogo, setEnviandoLogo] = useState(false)
-
-  async function handleLogoUpload(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0]
-    if (!file) return
-    setEnviandoLogo(true)
-
-    const { error: errUpload } = await supabase.storage
-      .from('lojas')
-      .upload(`${loja.id}/logo`, file, { upsert: true, contentType: file.type })
-
-    if (!errUpload) {
-      const { data: { publicUrl } } = supabase.storage
-        .from('lojas')
-        .getPublicUrl(`${loja.id}/logo`)
-      /* cache-buster para forçar refresh imediato */
-      const url = `${publicUrl}?t=${Date.now()}`
-      await supabase.from('lojas').update({ logo_url: url }).eq('id', loja.id)
-      onLogoAtualizada(url)
-    }
-
-    setEnviandoLogo(false)
-    e.target.value = ''
+function TopProdutos({ produtos }: { produtos: TopProduto[] }) {
+  if (produtos.length === 0) {
+    return (
+      <Card bodyClassName="p-4">
+        <SectionTitle className="mb-3">Top 5 produtos da semana</SectionTitle>
+        <p className="text-sm text-ink-mute py-4 text-center">Sem vendas nos últimos 7 dias.</p>
+      </Card>
+    )
   }
-
-  async function handleRemoverLogo() {
-    await supabase.storage.from('lojas').remove([`${loja.id}/logo`])
-    await supabase.from('lojas').update({ logo_url: null }).eq('id', loja.id)
-    onLogoAtualizada(null)
-  }
-
-  const linhas = [
-    { label: 'WhatsApp',        valor: loja.whatsapp },
-    { label: 'Endereço',        valor: loja.endereco },
-    { label: 'Chave Pix',       valor: loja.chave_pix },
-    { label: 'Taxa de entrega', valor: formatarReal(loja.taxa_entrega) },
-    {
-      label: 'Pedido mínimo',
-      valor: loja.pedido_minimo != null ? formatarReal(loja.pedido_minimo) : null,
-    },
-  ].filter((l): l is { label: string; valor: string } => l.valor != null)
 
   return (
-    <Card bodyClassName="p-6">
-      {/* Logo da loja */}
-      <div className="flex items-center gap-4 mb-5">
-        <div className="w-16 h-16 rounded-full overflow-hidden bg-brand-50 border border-line shrink-0">
-          {loja.logo_url ? (
-            <img src={loja.logo_url} alt={loja.nome} className="w-full h-full object-cover" />
-          ) : (
-            <div className="w-full h-full flex items-center justify-center">
-              <ImageIcon size={20} strokeWidth={1.25} className="text-brand-200" />
-            </div>
-          )}
-        </div>
-
-        <div className="flex flex-col gap-1">
-          <label className={[
-            'cursor-pointer text-sm font-semibold text-brand-600 hover:text-brand-700 transition-colors',
-            enviandoLogo ? 'opacity-50 pointer-events-none' : '',
-          ].join(' ')}>
-            {enviandoLogo ? 'Enviando…' : loja.logo_url ? 'Alterar logo' : 'Adicionar logo'}
-            <input
-              type="file"
-              accept="image/*"
-              className="sr-only"
-              onChange={handleLogoUpload}
-              disabled={enviandoLogo}
-            />
-          </label>
-          {loja.logo_url && !enviandoLogo && (
-            <button
-              onClick={handleRemoverLogo}
-              className="text-xs text-danger hover:text-danger/80 text-left transition-colors"
-            >
-              Remover
-            </button>
-          )}
-        </div>
+    <Card bodyClassName="p-4">
+      <SectionTitle className="mb-3">Top 5 produtos da semana</SectionTitle>
+      <div className="flex flex-col divide-y divide-line">
+        {produtos.map((it, i) => (
+          <div key={i} className="flex items-center gap-2 py-2.5 first:pt-0 last:pb-0">
+            <span className="text-xs font-bold text-brand-700 bg-brand-100 rounded-full w-5 h-5 flex items-center justify-center shrink-0">
+              {i + 1}
+            </span>
+            <span className="flex-1 text-sm text-ink truncate">{it.nome}</span>
+            <span className="text-sm font-semibold text-ink shrink-0">{it.qtd}x</span>
+          </div>
+        ))}
       </div>
+    </Card>
+  )
+}
 
-      <div className="flex items-start justify-between mb-4">
-        <div>
-          <h2 className="text-[18px] font-semibold text-ink">{loja.nome}</h2>
-          <p className="text-sm text-ink-mute mt-0.5">/{loja.slug}</p>
-        </div>
-        <Button variant="secondary" onClick={onEditar}>
-          Editar
-        </Button>
+/* ── Últimas avaliações ─────────────────────────────────── */
+
+function Estrelas({ nota }: { nota: number }) {
+  return (
+    <div className="flex gap-0.5">
+      {Array.from({ length: 5 }, (_, i) => (
+        <Star
+          key={i}
+          size={14}
+          strokeWidth={1.75}
+          className={i < nota ? 'fill-accent text-accent' : 'text-line'}
+        />
+      ))}
+    </div>
+  )
+}
+
+function UltimasAvaliacoes({ avaliacoes }: { avaliacoes: AvaliacaoRow[] }) {
+  if (avaliacoes.length === 0) return null
+
+  return (
+    <Card bodyClassName="p-4">
+      <div className="flex items-center justify-between mb-3">
+        <SectionTitle>Últimas avaliações</SectionTitle>
+        <Link
+          href="/painel/conta?tab=avaliacoes"
+          className="text-sm font-medium text-brand-600 hover:text-brand-700 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 rounded"
+        >
+          Ver todas
+        </Link>
       </div>
-
-      {linhas.length > 0 && (
-        <div className="border-t border-line">
-          {linhas.map(({ label, valor }) => (
-            <div
-              key={label}
-              className="flex justify-between py-3 border-b border-line last:border-0"
-            >
-              <span className="text-sm text-ink-soft">{label}</span>
-              <span className="text-sm font-medium text-ink">{valor}</span>
+      <div className="flex flex-col divide-y divide-line">
+        {avaliacoes.map(av => (
+          <div key={av.id} className="py-3 first:pt-0 last:pb-0">
+            <div className="flex items-center justify-between gap-2 mb-1">
+              <Estrelas nota={av.nota} />
+              <span className="text-xs text-ink-mute shrink-0">
+                {mascararNome(
+                  Array.isArray(av.profiles) ? av.profiles[0]?.nome : av.profiles?.nome
+                )}
+              </span>
             </div>
-          ))}
-        </div>
-      )}
+            {av.comentario && (
+              <p className="text-sm text-ink-soft leading-relaxed line-clamp-2">{av.comentario}</p>
+            )}
+          </div>
+        ))}
+      </div>
     </Card>
   )
 }
@@ -402,7 +286,7 @@ interface PrimeirosPassosProps {
 
 function PrimeirosPassos({ temLoja, temCategoria, temProduto }: PrimeirosPassosProps) {
   const passos = [
-    { feito: temLoja,      bloqueado: false,    titulo: 'Criar sua loja',                 href: '/painel',           cta: 'Criar' },
+    { feito: temLoja,      bloqueado: false,    titulo: 'Criar sua loja',                 href: '/painel',            cta: 'Criar' },
     { feito: temCategoria, bloqueado: !temLoja, titulo: 'Adicionar categorias',           href: '/painel/categorias', cta: 'Adicionar' },
     { feito: temProduto,   bloqueado: !temLoja, titulo: 'Cadastrar seu primeiro produto', href: '/painel/produtos',   cta: 'Cadastrar' },
   ]
@@ -468,7 +352,7 @@ function PrimeirosPassos({ temLoja, temCategoria, temProduto }: PrimeirosPassosP
   )
 }
 
-/* ── Onboarding concluído: loja no ar ───────────────────── */
+/* ── Loja no ar ─────────────────────────────────────────── */
 
 function LojaNoAr({ slug, origin }: { slug: string; origin: string }) {
   const [copiado, setCopiado] = useState(false)
@@ -517,110 +401,25 @@ function LojaNoAr({ slug, origin }: { slug: string; origin: string }) {
   )
 }
 
-/* ── Dashboard (indicadores reais dos pedidos) ──────────── */
-
-interface PedidoDash {
-  id: string
-  total: number
-  status: OrderStatus
-  criado_em: string
-  nome_cliente: string
-}
-interface ItemVendido { nome: string; qtd: number }
-interface Kpis { pedidosHoje: number; faturamentoHoje: number; ticket: number | null; pendentes: number }
-
-function formatarHora(iso: string): string {
-  return new Date(iso).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
-}
-
-function Dashboard({ kpis, recentes, maisVendidos }: {
-  kpis: Kpis
-  recentes: PedidoDash[]
-  maisVendidos: ItemVendido[]
-}) {
-  const cards = [
-    { label: 'Pedidos hoje',       valor: String(kpis.pedidosHoje) },
-    { label: 'Faturamento hoje',   valor: formatarReal(kpis.faturamentoHoje) },
-    { label: 'Ticket médio hoje',  valor: kpis.ticket == null ? '—' : formatarReal(kpis.ticket) },
-    { label: 'Pedidos pendentes',  valor: String(kpis.pendentes) },
-  ]
-
-  return (
-    <div className="flex flex-col gap-4">
-      {/* KPIs */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        {cards.map(c => (
-          <Card key={c.label} bodyClassName="p-4">
-            <p className="text-xs text-ink-soft leading-snug">{c.label}</p>
-            <p className="text-xl font-bold text-ink mt-1 leading-tight">{c.valor}</p>
-          </Card>
-        ))}
-      </div>
-
-      <div className="grid md:grid-cols-2 gap-4">
-        {/* Pedidos recentes */}
-        <Card bodyClassName="p-4">
-          <SectionTitle className="mb-3">Pedidos recentes</SectionTitle>
-          {recentes.length === 0 ? (
-            <p className="text-sm text-ink-mute py-4 text-center">Nenhum pedido ainda.</p>
-          ) : (
-            <div className="flex flex-col divide-y divide-line">
-              {recentes.map(p => (
-                <div key={p.id} className="flex items-center gap-2 py-2.5 first:pt-0 last:pb-0">
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-ink truncate">{p.nome_cliente}</p>
-                    <p className="text-xs text-ink-mute">{formatarHora(p.criado_em)}</p>
-                  </div>
-                  <span className="text-sm font-semibold text-brand-700 shrink-0">{formatarReal(p.total)}</span>
-                  <StatusBadge status={p.status} />
-                </div>
-              ))}
-            </div>
-          )}
-        </Card>
-
-        {/* Mais vendidos */}
-        <Card bodyClassName="p-4">
-          <SectionTitle className="mb-3">Mais vendidos</SectionTitle>
-          {maisVendidos.length === 0 ? (
-            <p className="text-sm text-ink-mute py-4 text-center">Sem vendas ainda.</p>
-          ) : (
-            <div className="flex flex-col divide-y divide-line">
-              {maisVendidos.map((it, i) => (
-                <div key={i} className="flex items-center gap-2 py-2.5 first:pt-0 last:pb-0">
-                  <span className="text-xs font-bold text-brand-700 bg-brand-100 rounded-full w-5 h-5 flex items-center justify-center shrink-0">
-                    {i + 1}
-                  </span>
-                  <span className="flex-1 text-sm text-ink truncate">{it.nome}</span>
-                  <span className="text-sm font-semibold text-ink shrink-0">{it.qtd}x</span>
-                </div>
-              ))}
-            </div>
-          )}
-        </Card>
-      </div>
-    </div>
-  )
-}
-
 /* ── Página ─────────────────────────────────────────────── */
 
 export default function Painel() {
   const router = useRouter()
-  const [userId, setUserId]   = useState<string | null>(null)
-  // undefined = carregando; null = sem loja; Loja = tem loja
-  const [loja, setLoja]       = useState<Loja | null | undefined>(undefined)
-  const [editando, setEditando] = useState(false)
+  const [userId, setUserId]     = useState<string | null>(null)
+  const [loja, setLoja]         = useState<Loja | null | undefined>(undefined)
+  const [origin, setOrigin]     = useState('')
 
-  // Estado de progresso do onboarding
+  // Onboarding
   const [temCategoria, setTemCategoria] = useState(false)
   const [temProduto, setTemProduto]     = useState(false)
-  const [origin, setOrigin]             = useState('')
 
-  // Dashboard
-  const [kpis, setKpis] = useState<Kpis>({ pedidosHoje: 0, faturamentoHoje: 0, ticket: null, pendentes: 0 })
-  const [recentes, setRecentes] = useState<PedidoDash[]>([])
-  const [maisVendidos, setMaisVendidos] = useState<ItemVendido[]>([])
+  // Dashboard data
+  const [kpiHoje, setKpiHoje]           = useState<KpiDia>({ count: 0, total: 0 })
+  const [kpiOntem, setKpiOntem]         = useState<KpiDia>({ count: 0, total: 0 })
+  const [valoresOcultos, setValoresOcultos] = useState(false)
+  const [andamento, setAndamento]       = useState<PedidoAndamento[]>([])
+  const [topProdutos, setTopProdutos]   = useState<TopProduto[]>([])
+  const [avaliacoes, setAvaliacoes]     = useState<AvaliacaoRow[]>([])
 
   useEffect(() => {
     setOrigin(window.location.origin)
@@ -636,93 +435,130 @@ export default function Painel() {
 
       setUserId(user.id)
 
-      const { data } = await supabase
+      const { data: lojaData } = await supabase
         .from('lojas')
         .select('*')
         .eq('dono_id', user.id)
         .maybeSingle()
 
-      const lojaEncontrada = data ? (data as Loja) : null
+      const lojaEncontrada = lojaData ? (lojaData as Loja) : null
+      setLoja(lojaEncontrada)
 
-      // Progresso: tem ao menos 1 categoria e 1 produto?
-      if (lojaEncontrada) {
-        const [{ count: catCount }, { count: prodCount }] = await Promise.all([
-          supabase.from('categorias').select('id', { count: 'exact', head: true }).eq('loja_id', lojaEncontrada.id),
-          supabase.from('produtos').select('id', { count: 'exact', head: true }).eq('loja_id', lojaEncontrada.id),
-        ])
-        setTemCategoria((catCount ?? 0) > 0)
-        setTemProduto((prodCount ?? 0) > 0)
+      if (!lojaEncontrada) return
 
-        // Dashboard: KPIs, recentes e mais vendidos (só dados reais)
-        const { data: peds } = await supabase
+      const lojaId = lojaEncontrada.id
+
+      // Datas de referência
+      const hojeInicio = new Date()
+      hojeInicio.setHours(0, 0, 0, 0)
+      const ontemInicio = new Date(hojeInicio)
+      ontemInicio.setDate(hojeInicio.getDate() - 1)
+      const semanaAtras = new Date()
+      semanaAtras.setDate(semanaAtras.getDate() - 7)
+
+      // Carregar tudo em paralelo
+      const [
+        catCheck,
+        prodCheck,
+        pedidosHojeRes,
+        pedidosOntemRes,
+        andamentoRes,
+        pedidos7dRes,
+        avaliacoesRes,
+      ] = await Promise.all([
+        supabase.from('categorias').select('id', { count: 'exact', head: true }).eq('loja_id', lojaId),
+        supabase.from('produtos').select('id', { count: 'exact', head: true }).eq('loja_id', lojaId),
+        supabase
+          .from('pedidos')
+          .select('id,total,status')
+          .eq('loja_id', lojaId)
+          .neq('status', 'cancelado')
+          .gte('criado_em', hojeInicio.toISOString()),
+        supabase
+          .from('pedidos')
+          .select('id,total,status')
+          .eq('loja_id', lojaId)
+          .neq('status', 'cancelado')
+          .gte('criado_em', ontemInicio.toISOString())
+          .lt('criado_em', hojeInicio.toISOString()),
+        supabase
           .from('pedidos')
           .select('id,total,status,criado_em,nome_cliente')
-          .eq('loja_id', lojaEncontrada.id)
+          .eq('loja_id', lojaId)
+          .in('status', ['recebido', 'preparando', 'saiu_entrega'])
+          .order('criado_em', { ascending: false }),
+        supabase
+          .from('pedidos')
+          .select('id')
+          .eq('loja_id', lojaId)
+          .neq('status', 'cancelado')
+          .gte('criado_em', semanaAtras.toISOString()),
+        supabase
+          .from('avaliacoes')
+          .select('id,nota,comentario,criado_em,profiles:cliente_id(nome)')
+          .eq('loja_id', lojaId)
           .order('criado_em', { ascending: false })
-        const pedidos = (peds as PedidoDash[]) ?? []
+          .limit(3),
+      ])
 
-        const hoje = new Date().toDateString()
-        const doDia = pedidos.filter(p => new Date(p.criado_em).toDateString() === hoje)
-        const validosDia = doDia.filter(p => p.status !== 'cancelado')
-        const faturamento = validosDia.reduce((s, p) => s + Number(p.total), 0)
-        setKpis({
-          pedidosHoje: doDia.length,
-          faturamentoHoje: faturamento,
-          ticket: validosDia.length ? faturamento / validosDia.length : null,
-          pendentes: pedidos.filter(p => p.status === 'recebido').length,
-        })
-        setRecentes(pedidos.slice(0, 5))
+      setTemCategoria((catCheck.count ?? 0) > 0)
+      setTemProduto((prodCheck.count ?? 0) > 0)
 
-        const ids = pedidos.map(p => p.id)
-        if (ids.length > 0) {
-          const { data: itens } = await supabase
-            .from('itens_pedido')
-            .select('nome_produto,quantidade,pedido_id')
-            .in('pedido_id', ids)
-          const mapa: Record<string, number> = {}
-          for (const it of (itens as { nome_produto: string; quantidade: number }[] | null) ?? []) {
-            mapa[it.nome_produto] = (mapa[it.nome_produto] ?? 0) + Number(it.quantidade)
-          }
-          setMaisVendidos(
-            Object.entries(mapa)
-              .sort((a, b) => b[1] - a[1])
-              .slice(0, 5)
-              .map(([nome, qtd]) => ({ nome, qtd })),
-          )
+      // KPIs de hoje
+      const hoje = (pedidosHojeRes.data ?? []) as { total: number; status: string }[]
+      setKpiHoje({
+        count: hoje.length,
+        total: hoje.reduce((s, p) => s + Number(p.total), 0),
+      })
+
+      // KPIs de ontem
+      const ontem = (pedidosOntemRes.data ?? []) as { total: number; status: string }[]
+      setKpiOntem({
+        count: ontem.length,
+        total: ontem.reduce((s, p) => s + Number(p.total), 0),
+      })
+
+      // Pedidos em andamento
+      setAndamento((andamentoRes.data ?? []) as PedidoAndamento[])
+
+      // Top 5 produtos da semana
+      const ids7d = (pedidos7dRes.data ?? []).map((p: { id: string }) => p.id)
+      if (ids7d.length > 0) {
+        const { data: itens } = await supabase
+          .from('itens_pedido')
+          .select('nome_produto,quantidade')
+          .in('pedido_id', ids7d)
+
+        const mapa: Record<string, number> = {}
+        for (const it of (itens as { nome_produto: string; quantidade: number }[] | null) ?? []) {
+          mapa[it.nome_produto] = (mapa[it.nome_produto] ?? 0) + Number(it.quantidade)
         }
+        setTopProdutos(
+          Object.entries(mapa)
+            .sort((a, b) => b[1] - a[1])
+            .slice(0, 5)
+            .map(([nome, qtd]) => ({ nome, qtd })),
+        )
       }
 
-      setLoja(lojaEncontrada)
+      // Avaliações
+      setAvaliacoes((avaliacoesRes.data ?? []) as AvaliacaoRow[])
     }
 
     init()
   }, [router])
 
-  function handleSalvo(novaLoja: Loja) {
-    setLoja(novaLoja)
-    setEditando(false)
-    toast.success('Loja salva')
-  }
-
-  // Aguardando sessão e dados da loja
   if (loja === undefined || !userId) return null
 
-  const temLoja = loja != null
+  const temLoja = loja !== null
   const onboardingCompleto = temLoja && temCategoria && temProduto
 
   return (
     <main className="py-8">
       <PageContainer size="reading" className="flex flex-col gap-6">
 
-        {/* Dashboard de indicadores (quando há loja) */}
-        {temLoja && (
-          <Dashboard kpis={kpis} recentes={recentes} maisVendidos={maisVendidos} />
-        )}
-
-        {/* Onboarding: checklist enquanto incompleto; link permanente quando no ar */}
-        {onboardingCompleto && loja ? (
-          <LojaNoAr slug={loja.slug} origin={origin} />
-        ) : (
+        {/* Onboarding: exibe checklist enquanto incompleto */}
+        {!onboardingCompleto && (
           <PrimeirosPassos
             temLoja={temLoja}
             temCategoria={temCategoria}
@@ -730,25 +566,50 @@ export default function Painel() {
           />
         )}
 
-        {/* Seção da loja */}
-        {loja === null ? (
-          // Sem loja: exibe formulário de criação
-          <LojaForm userId={userId} loja={null} onSalvo={handleSalvo} />
-        ) : editando ? (
-          // Editando loja existente
-          <LojaForm
+        {/* Formulário de criação quando não há loja ainda */}
+        {!temLoja && (
+          <StoreInfoCard
             userId={userId}
-            loja={loja}
-            onSalvo={handleSalvo}
-            onCancelar={() => setEditando(false)}
+            loja={null}
+            onSalvo={novaLoja => {
+              setLoja(novaLoja)
+              toast.success('Loja criada!')
+            }}
           />
-        ) : (
-          // Exibindo dados da loja
-          <LojaInfo
-            loja={loja}
-            onEditar={() => setEditando(true)}
-            onLogoAtualizada={url => setLoja(prev => prev == null ? prev : { ...prev, logo_url: url })}
-          />
+        )}
+
+        {/* Dashboard operacional (quando há loja) */}
+        {temLoja && (
+          <>
+            {/* Boas-vindas */}
+            <div>
+              <h1 className="text-2xl font-bold text-ink leading-tight">Boas-vindas e boas-vendas, <span className="text-brand-500">{loja.nome}</span>!</h1>
+              <div className="flex items-center gap-2 mt-1">
+                <p className="text-sm text-ink-soft">Acompanhe seus pedidos e o desempenho da sua loja.</p>
+                <button
+                  onClick={() => setValoresOcultos(o => !o)}
+                  aria-label={valoresOcultos ? 'Mostrar valores' : 'Ocultar valores'}
+                  className="text-ink-mute hover:text-ink-soft transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 rounded"
+                >
+                  {valoresOcultos
+                    ? <EyeOff size={16} strokeWidth={1.75} />
+                    : <Eye size={16} strokeWidth={1.75} />}
+                </button>
+              </div>
+            </div>
+
+            {/* KPIs */}
+            <KpiCards hoje={kpiHoje} ontem={kpiOntem} oculto={valoresOcultos} />
+
+            {/* Pedidos em andamento */}
+            <PedidosAndamento pedidos={andamento} />
+
+            {/* Top produtos + Avaliações lado a lado no desktop */}
+            <div className="grid md:grid-cols-2 gap-4">
+              <TopProdutos produtos={topProdutos} />
+              <UltimasAvaliacoes avaliacoes={avaliacoes} />
+            </div>
+          </>
         )}
 
       </PageContainer>

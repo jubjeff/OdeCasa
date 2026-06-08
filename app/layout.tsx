@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Plus_Jakarta_Sans } from "next/font/google";
 import { Toaster } from "sonner";
+import { Providers } from "./providers";
 import "./globals.css";
 
 const plusJakartaSans = Plus_Jakarta_Sans({
@@ -10,8 +11,11 @@ const plusJakartaSans = Plus_Jakarta_Sans({
 });
 
 export const metadata: Metadata = {
-  title: "OdeCasa",
+  title: "ÔdeCasa",
   description: "Delivery multi-loja",
+  manifest: "/manifest.json",
+  appleWebApp: { capable: true, title: "ÔdeCasa", statusBarStyle: "default" },
+  other: { "theme-color": "#0E9F5E", "mobile-web-app-capable": "yes" },
 };
 
 export default function RootLayout({
@@ -20,16 +24,24 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="pt-BR" className={plusJakartaSans.variable}>
+    <html lang="pt-BR" className={plusJakartaSans.variable} suppressHydrationWarning>
+      <head>
+        <meta name="theme-color" content="#0E9F5E" />
+        <meta name="apple-mobile-web-app-capable" content="yes" />
+        <meta name="apple-mobile-web-app-title" content="ÔdeCasa" />
+        <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+      </head>
       <body className="min-h-screen antialiased">
-        {children}
-        <Toaster
-          position="top-center"
-          richColors
-          closeButton
-          duration={3000}
-          toastOptions={{ style: { fontFamily: 'var(--font-plus-jakarta-sans)' } }}
-        />
+        <Providers>
+          {children}
+          <Toaster
+            position="top-center"
+            richColors
+            closeButton
+            duration={3000}
+            toastOptions={{ style: { fontFamily: 'var(--font-plus-jakarta-sans)' } }}
+          />
+        </Providers>
       </body>
     </html>
   );

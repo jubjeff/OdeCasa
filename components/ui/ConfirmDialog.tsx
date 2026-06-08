@@ -40,7 +40,7 @@ export function ConfirmDialog({
       />
 
       {/* Card do diálogo */}
-      <div className="relative bg-surface rounded-xl shadow-lg w-full max-w-sm p-6 flex flex-col gap-5">
+      <div className="animate-modal-in relative bg-surface rounded-xl shadow-lg w-full max-w-sm p-6 flex flex-col gap-5">
         <p className="text-base text-ink leading-relaxed">{mensagem}</p>
 
         <div className="flex gap-3 justify-end">

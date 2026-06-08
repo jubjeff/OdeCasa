@@ -1,0 +1,24 @@
+{
+  "name": "ÔdeCasa",
+  "short_name": "ÔdeCasa",
+  "description": "Delivery multi-loja",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "theme_color": "#0E9F5E",
+  "background_color": "#FAFAF7",
+  "icons": [
+    {
+      "src": "/odecasa-logo.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/odecasa-logo.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
