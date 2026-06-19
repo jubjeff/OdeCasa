@@ -962,7 +962,7 @@ function PainelContaInner() {
     if (roleLoading || !lojaId) return
     async function init() {
       const { data: { user } } = await supabase.auth.getUser()
-      if (!user) { router.push('/entrar'); return }
+      if (!user) { router.push('/login'); return }
 
       setUserId(user.id)
       setConta({

@@ -440,7 +440,7 @@ function PainelLayoutContent({ children }: { children: React.ReactNode }) {
             )}
 
             <button
-              onClick={async () => { await supabase.auth.signOut(); router.push('/entrar') }}
+              onClick={async () => { await supabase.auth.signOut(); router.push('/login') }}
               aria-label="Sair da conta"
               title="Sair da conta"
               className="w-10 h-10 flex items-center justify-center rounded-full hover:bg-danger/10 transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 shrink-0"
