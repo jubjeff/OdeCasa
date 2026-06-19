@@ -36,7 +36,7 @@ function CriarContaInner() {
         // Após confirmar o e-mail, volta para uma página que loga e
         // redireciona à loja/checkout de origem.
         emailRedirectTo:
-          `${window.location.origin}/auth/confirmado?redirect=${encodeURIComponent(redirect)}`,
+          `${process.env.NEXT_PUBLIC_SITE_URL ?? window.location.origin}/auth/confirmado?redirect=${encodeURIComponent(redirect)}`,
       },
     })
 

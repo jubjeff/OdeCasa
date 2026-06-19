@@ -6,7 +6,7 @@ import { useParams, useRouter } from 'next/navigation'
 import {
   ShoppingCart, MapPin, Truck, ImageIcon, ShoppingBag, SearchX, Search,
   Minus, Plus, X, AlertCircle, ArrowLeft, CheckCircle2, Copy, Check, User, Bell,
-  Info, MessageCircle, Star, ExternalLink,
+  MessageCircle, Star, ExternalLink, Clock,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { supabase } from '@/lib/supabase'
@@ -18,6 +18,7 @@ import { PageContainer } from '@/components/ui/PageContainer'
 import { SectionTitle } from '@/components/ui/SectionTitle'
 import { Chip } from '@/components/ui/Chip'
 import { NotificationBell } from '@/components/ui/NotificationBell'
+import { ThemeToggle } from '@/components/ui/ThemeToggle'
 
 /* ── Tipos ───────────────────────────────────────── */
 
@@ -610,9 +611,10 @@ interface DrawerCarrinhoProps {
   dispatch: React.Dispatch<AcaoCarrinho>
   onFechar: () => void
   onContinuar: () => void
+  podeReceber: boolean
 }
 
-function DrawerCarrinho({ itens, loja, dispatch, onFechar, onContinuar }: DrawerCarrinhoProps) {
+function DrawerCarrinho({ itens, loja, dispatch, onFechar, onContinuar, podeReceber }: DrawerCarrinhoProps) {
   const subtotal = itens.reduce((acc, i) => acc + i.preco * i.quantidade, 0)
   const taxa = loja.taxa_entrega
   const total = subtotal + taxa
@@ -728,9 +730,31 @@ function DrawerCarrinho({ itens, loja, dispatch, onFechar, onContinuar }: Drawer
             </div>
           )}
 
-          <Button variant="primary" className="w-full" disabled={!podeContinuar} onClick={onContinuar}>
-            Continuar
-          </Button>
+          {!podeReceber ? (
+            <div className="flex flex-col gap-3">
+              <div className="flex items-start gap-3 bg-ink/5 rounded-xl p-4 text-sm leading-snug text-ink-soft">
+                <Clock size={18} strokeWidth={1.75} className="shrink-0 mt-0.5 text-ink-mute" />
+                <span>
+                  Esta loja está com pedidos pausados no momento. Tente novamente em breve ou entre em contato pelo WhatsApp.
+                </span>
+              </div>
+              {loja.whatsapp && (
+                <a
+                  href={`https://wa.me/55${loja.whatsapp.replace(/\D/g, '')}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center justify-center gap-2 min-h-[48px] px-4 rounded-md font-semibold text-sm bg-surface border border-line text-brand-700 hover:bg-brand-50 active:scale-[0.98] transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+                >
+                  <MessageCircle size={18} strokeWidth={1.75} />
+                  Falar com a loja
+                </a>
+              )}
+            </div>
+          ) : (
+            <Button variant="primary" className="w-full" disabled={!podeContinuar} onClick={onContinuar}>
+              Continuar
+            </Button>
+          )}
         </div>
       </div>
     </div>
@@ -1112,6 +1136,12 @@ function TelaCheckout({
       )
 
       if (errItens) throw errItens
+
+      fetch('/api/webhook/disparar', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ loja_id: loja.id, evento: 'pedido.criado', pedido_id: pedidoId }),
+      }).catch(() => {})
 
       // Cliente logado optou por salvar o endereço novo digitado
       if (cliente && !usandoSalvo && salvarEndereco && form.rua.trim()) {
@@ -1599,7 +1629,7 @@ function TelaCheckout({
               </div>
             )}
 
-            {/* Botão de envio */}
+            {/* Botão de envio — guard final: re-verifica se loja ainda pode receber */}
             <Button
               type="submit"
               variant="primary"
@@ -1890,6 +1920,7 @@ export default function PaginaLoja() {
   const [carrinho, dispatch]        = useReducer(carrinhoReducer, [])
   const [drawerAberto, setDrawerAberto] = useState(false)
   const [drawerInfoAberto, setDrawerInfoAberto] = useState(false)
+  const [podeReceber, setPodeReceber] = useState(true)
   const [scrolled, setScrolled]     = useState(false)
   const [etapa, setEtapa]           = useState<Etapa>('loja')
   const [pedidoConfirmado, setPedidoConfirmado] = useState<PedidoConfirmado | null>(null)
@@ -2061,6 +2092,18 @@ export default function PaginaLoja() {
     })()
   }, [produtos, slug])
 
+  // Verifica se a loja pode receber pedidos ao abrir o drawer
+  useEffect(() => {
+    if (!drawerAberto || !loja) return
+    let ativo = true
+    supabase
+      .rpc('loja_pode_receber_pedidos', { p_loja_id: loja.id })
+      .then(({ data }) => {
+        if (ativo) setPodeReceber(data !== false)
+      })
+    return () => { ativo = false }
+  }, [drawerAberto, loja])
+
   function handleContinuar() {
     setDrawerAberto(false)
     setEtapa('checkout')
@@ -2128,7 +2171,7 @@ export default function PaginaLoja() {
       <TopBar
         width="reading"
         className={scrolled
-          ? 'transition-all duration-200 !bg-white/80 backdrop-blur-sm shadow-sm'
+          ? 'transition-all duration-200 !bg-surface/80 backdrop-blur-sm shadow-sm'
           : 'transition-all duration-200'
         }
         left={
@@ -2152,6 +2195,9 @@ export default function PaginaLoja() {
         }
         right={
           <>
+            {/* Alternador de tema */}
+            <ThemeToggle />
+
             {/* Sininho de notificações */}
             <NotificationBell />
 
@@ -2256,14 +2302,6 @@ export default function PaginaLoja() {
           </div>
 
           <div className="flex flex-wrap gap-2 mt-4">
-            <button
-              onClick={() => setDrawerInfoAberto(true)}
-              className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-md border border-line bg-surface text-sm font-medium text-ink-soft hover:bg-brand-50 hover:text-brand-700 hover:border-brand-200 active:scale-[0.98] transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
-            >
-              <Info size={15} strokeWidth={1.75} />
-              Ver informações
-            </button>
-
             {loja.whatsapp && (
               <a
                 href={`https://wa.me/${loja.whatsapp.replace(/\D/g, '')}`}
@@ -2405,6 +2443,7 @@ export default function PaginaLoja() {
           dispatch={dispatch}
           onFechar={() => setDrawerAberto(false)}
           onContinuar={handleContinuar}
+          podeReceber={podeReceber}
         />
       )}
 

@@ -27,6 +27,14 @@
   --color-accent: #F5A524;
   --color-danger: #E5484D;
 
+  /* ── Papéis de operador ────────────────────────── */
+  --color-papel-gerente-bg:    #EDE9FE;
+  --color-papel-gerente-text:  #5B21B6;
+  --color-papel-atendente-bg:  #CCFBF1;
+  --color-papel-atendente-text: #0F766E;
+  --color-papel-caixa-bg:      #E9E8E2;
+  --color-papel-caixa-text:    #51594F;
+
   /* ── Raios ─────────────────────────────────────── */
   --radius-sm: 8px;
   --radius-md: 12px;
@@ -71,6 +79,13 @@ body {
 
   --color-accent:  #FBBF24;
   --color-danger:  #F87171;
+
+  --color-papel-gerente-bg:    #2E1065;
+  --color-papel-gerente-text:  #C4B5FD;
+  --color-papel-atendente-bg:  #042F2E;
+  --color-papel-atendente-text: #5EEAD4;
+  --color-papel-caixa-bg:      #334155;
+  --color-papel-caixa-text:    #94A3B8;
 }
 
 /* ── Animações ─────────────────────────────────── */
@@ -112,4 +127,65 @@ body {
 }
 @utility animate-pulse-ring-accent {
   animation: pulse-ring-accent 1.8s ease-out infinite;
+}
+
+/* ── Sonner toasts ─────────────────────────────────── */
+[data-sonner-toaster] {
+  --border-radius:   12px;
+  --normal-bg:       var(--color-surface);
+  --normal-border:   var(--color-line);
+  --normal-text:     var(--color-ink);
+  --success-bg:      var(--color-brand-50);
+  --success-border:  var(--color-brand-200);
+  --success-text:    var(--color-brand-700);
+  --error-bg:        #FFF1F1;
+  --error-border:    #FECACA;
+  --error-text:      var(--color-danger);
+  --warning-bg:      #FFFBEB;
+  --warning-border:  #FDE68A;
+  --warning-text:    #92400E;
+  font-family: var(--font-plus-jakarta-sans), system-ui, sans-serif;
+}
+
+[data-sonner-toast] {
+  font-size: 14px;
+  box-shadow: var(--shadow-md);
+}
+
+[data-sonner-toast] [data-title] {
+  font-weight: 600;
+}
+
+[data-sonner-toast] [data-description] {
+  font-size: 13px;
+  color: var(--color-ink-soft);
+}
+
+/* ── Landing page — animações ─────────────────────── */
+@keyframes float-card {
+  0%, 100% { transform: translateY(0); }
+  50%       { transform: translateY(-10px); }
+}
+@utility animate-float {
+  animation: float-card 3.5s ease-in-out infinite;
+}
+@utility animate-float-delayed {
+  animation: float-card 3.5s ease-in-out infinite 1.75s;
+}
+
+@keyframes kpi-flash {
+  0%   { background-color: var(--color-brand-50); }
+  65%  { background-color: var(--color-brand-50); }
+  100% { background-color: transparent; }
+}
+@utility animate-kpi-flash {
+  animation: kpi-flash 800ms ease-out;
+}
+
+@keyframes live-dot {
+  0%, 100% { opacity: 1;    transform: scale(1); }
+  50%       { opacity: 0.4; transform: scale(0.7); }
+}
+@utility animate-live-dot {
+  animation: live-dot 1.8s ease-in-out infinite;
 }

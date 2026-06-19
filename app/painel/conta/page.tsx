@@ -5,7 +5,8 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import {
   ExternalLink, Star, Copy, Check, Eye, EyeOff, LogOut,
-  KeyRound, ChevronRight,
+  KeyRound, Users, UserPlus, AlertCircle, CheckCircle, X, RefreshCw,
+  ShieldOff,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { supabase } from '@/lib/supabase'
@@ -13,13 +14,16 @@ import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Card } from '@/components/ui/Card'
 import { PageContainer } from '@/components/ui/PageContainer'
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { StoreInfoCard, type Loja, type Horarios } from '@/components/account/StoreInfoCard'
 import { DistanceDeliveryCard } from '@/components/account/DistanceDeliveryCard'
 import { OpeningHoursCard } from '@/components/account/OpeningHoursCard'
+import { PlanGate } from '@/components/PlanGate'
+import { useRole } from '@/hooks/useRole'
 
 /* ── Abas ───────────────────────────────────────────────── */
 
-const TABS = [
+const TABS_BASE = [
   { id: 'perfil',     label: 'Perfil' },
   { id: 'loja',       label: 'Loja' },
   { id: 'entrega',    label: 'Entrega' },
@@ -28,10 +32,14 @@ const TABS = [
   { id: 'avaliacoes', label: 'Avaliações' },
 ] as const
 
-type TabId = typeof TABS[number]['id']
+const TAB_OPERADORES = { id: 'operadores', label: 'Operadores' } as const
+
+type TabId = typeof TABS_BASE[number]['id'] | 'operadores'
+
+const ALL_TAB_IDS: TabId[] = [...TABS_BASE.map(t => t.id), 'operadores']
 
 function isValidTab(v: string | null): v is TabId {
-  return TABS.some(t => t.id === v)
+  return ALL_TAB_IDS.includes(v as TabId)
 }
 
 /* ── Badge aberta/fechada ───────────────────────────────── */
@@ -527,6 +535,402 @@ function TabAvaliacoes({ loja, onIrParaLoja }: { loja: Loja; onIrParaLoja: () =>
   )
 }
 
+/* ── Tab Operadores ─────────────────────────────────────── */
+
+interface Operador {
+  id: string
+  email: string
+  papel: 'gerente' | 'atendente' | 'caixa'
+  status: 'pendente' | 'ativo' | 'inativo'
+  invite_token: string | null
+  invite_expires_at: string | null
+  user_id: string | null
+  criado_em: string
+}
+
+const PAPEL_LABEL: Record<string, string> = {
+  gerente: 'Gerente', atendente: 'Atendente', caixa: 'Operador de caixa',
+}
+
+const PAPEL_STYLE: Record<string, { bg: string; text: string }> = {
+  gerente:   { bg: 'var(--color-papel-gerente-bg)',   text: 'var(--color-papel-gerente-text)' },
+  atendente: { bg: 'var(--color-papel-atendente-bg)', text: 'var(--color-papel-atendente-text)' },
+  caixa:     { bg: 'var(--color-papel-caixa-bg)',     text: 'var(--color-papel-caixa-text)' },
+}
+
+function BadgePapel({ papel }: { papel: string }) {
+  const s = PAPEL_STYLE[papel] ?? PAPEL_STYLE.caixa
+  return (
+    <span
+      className="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold"
+      style={{ backgroundColor: s.bg, color: s.text }}
+    >
+      {PAPEL_LABEL[papel] ?? papel}
+    </span>
+  )
+}
+
+function BadgeStatus({ status }: { status: string }) {
+  const map: Record<string, string> = {
+    ativo:    'bg-brand-100 text-brand-700',
+    pendente: 'bg-accent/15 text-accent',
+    inativo:  'bg-line text-ink-mute',
+  }
+  const label: Record<string, string> = {
+    ativo: 'Ativo', pendente: 'Pendente', inativo: 'Inativo',
+  }
+  return (
+    <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${map[status] ?? map.inativo}`}>
+      {label[status] ?? status}
+    </span>
+  )
+}
+
+function TabOperadores({ lojaId, donoId }: { lojaId: string; donoId: string }) {
+  const [operadores, setOperadores]   = useState<Operador[]>([])
+  const [carregando, setCarregando]   = useState(true)
+  const [modalConvite, setModalConvite] = useState(false)
+  const [formEmail, setFormEmail]     = useState('')
+  const [formPapel, setFormPapel]     = useState<'gerente' | 'atendente' | 'caixa'>('atendente')
+  const [gerando, setGerando]         = useState(false)
+  const [erroConvite, setErroConvite] = useState<string | null>(null)
+  const [linkGerado, setLinkGerado]   = useState<string | null>(null)
+  const [copiado, setCopiado]         = useState(false)
+  const [modoReenvio, setModoReenvio] = useState(false)
+  const [revogarId, setRevogarId]     = useState<string | null>(null)
+
+  async function carregar() {
+    const { data } = await supabase
+      .from('operadores')
+      .select('id, email, papel, status, invite_token, invite_expires_at, user_id, criado_em')
+      .eq('loja_id', lojaId)
+      .order('criado_em', { ascending: true })
+    setOperadores((data as Operador[]) ?? [])
+    setCarregando(false)
+  }
+
+  useEffect(() => { carregar() }, [lojaId])
+
+  function resetConvite() {
+    setFormEmail('')
+    setFormPapel('atendente')
+    setLinkGerado(null)
+    setErroConvite(null)
+    setCopiado(false)
+    setModoReenvio(false)
+  }
+
+  function fecharModal() { setModalConvite(false); resetConvite() }
+
+  async function gerarLink(email: string, papel: string, opExistente?: string): Promise<string | null> {
+    const token = crypto.randomUUID().replace(/-/g, '')
+    const expires = new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString()
+    if (opExistente) {
+      const { error } = await supabase
+        .from('operadores')
+        .update({ invite_token: token, invite_expires_at: expires, papel })
+        .eq('id', opExistente)
+      if (error) return null
+    } else {
+      const { error } = await supabase.from('operadores').insert({
+        loja_id: lojaId, email, papel,
+        status: 'pendente', convidado_por: donoId,
+        invite_token: token, invite_expires_at: expires,
+      })
+      if (error) return null
+    }
+    return `${window.location.origin}/convite/${token}`
+  }
+
+  async function handleGerar() {
+    const email = formEmail.trim().toLowerCase()
+    if (!email || !email.includes('@')) { setErroConvite('Informe um e-mail válido'); return }
+    setGerando(true)
+    setErroConvite(null)
+
+    const { data: existente } = await supabase
+      .from('operadores')
+      .select('id, status')
+      .eq('loja_id', lojaId)
+      .eq('email', email)
+      .maybeSingle()
+
+    if (existente) {
+      const op = existente as { id: string; status: string }
+      if (op.status === 'ativo') {
+        setErroConvite('Este e-mail já é operador desta loja.')
+        setGerando(false)
+        return
+      }
+      setModoReenvio(true)
+      setGerando(false)
+      return
+    }
+
+    const url = await gerarLink(email, formPapel)
+    if (!url) { setErroConvite('Erro ao gerar convite.'); setGerando(false); return }
+    setLinkGerado(url)
+    await carregar()
+    setGerando(false)
+  }
+
+  async function handleReenviar() {
+    const email = formEmail.trim().toLowerCase()
+    setGerando(true)
+    const { data: op } = await supabase
+      .from('operadores').select('id').eq('loja_id', lojaId).eq('email', email).maybeSingle()
+    const url = await gerarLink(email, formPapel, (op as { id: string } | null)?.id)
+    if (!url) { setErroConvite('Erro ao reenviar.'); setGerando(false); return }
+    setLinkGerado(url)
+    setModoReenvio(false)
+    await carregar()
+    setGerando(false)
+  }
+
+  async function copiarLinkNovamente(op: Operador) {
+    const url = await gerarLink(op.email, op.papel, op.id)
+    if (!url) { toast.error('Erro ao gerar novo link.'); return }
+    navigator.clipboard.writeText(url)
+    toast.success('Novo link copiado! Expira em 48h.')
+    await carregar()
+  }
+
+  async function revogarAcesso() {
+    if (!revogarId) return
+    const { error } = await supabase
+      .from('operadores').update({ status: 'inativo' }).eq('id', revogarId)
+    setRevogarId(null)
+    if (error) { toast.error('Erro ao revogar acesso.'); return }
+    toast.success('Acesso revogado.')
+    await carregar()
+  }
+
+  function copiarLink(url: string) {
+    navigator.clipboard.writeText(url)
+    setCopiado(true)
+    setTimeout(() => setCopiado(false), 2000)
+  }
+
+  return (
+    <>
+      <PlanGate
+        feature="multiplos_operadores"
+        fallback="Múltiplos operadores requerem um plano superior"
+      >
+        <div className="flex flex-col gap-4">
+          {/* Cabeçalho */}
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="text-base font-semibold text-ink">Equipe da loja</h3>
+              <p className="text-xs text-ink-mute mt-0.5">Convide colaboradores e defina o nível de acesso deles.</p>
+            </div>
+            <Button
+              variant="secondary"
+              className="gap-2 shrink-0"
+              onClick={() => setModalConvite(true)}
+            >
+              <UserPlus size={15} strokeWidth={2} />
+              Convidar
+            </Button>
+          </div>
+
+          {/* Lista */}
+          {carregando ? (
+            <Card bodyClassName="p-4">
+              <div className="flex flex-col gap-3">
+                {[1, 2].map(i => (
+                  <div key={i} className="flex items-center gap-3 animate-pulse">
+                    <div className="w-10 h-10 rounded-full bg-line shrink-0" />
+                    <div className="flex-1 space-y-2">
+                      <div className="h-3.5 w-40 rounded bg-line" />
+                      <div className="h-3 w-24 rounded bg-line" />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </Card>
+          ) : operadores.length === 0 ? (
+            <Card bodyClassName="p-8">
+              <div className="flex flex-col items-center gap-4 text-center">
+                <div className="w-14 h-14 rounded-full bg-brand-50 flex items-center justify-center">
+                  <Users size={28} strokeWidth={1.25} className="text-brand-400" />
+                </div>
+                <div>
+                  <p className="text-sm font-semibold text-ink">Nenhum operador cadastrado</p>
+                  <p className="text-xs text-ink-mute mt-1 leading-relaxed">
+                    Convide sua equipe para ajudar a gerenciar pedidos, produtos e categorias.
+                  </p>
+                </div>
+                <Button onClick={() => setModalConvite(true)} className="gap-2">
+                  <UserPlus size={15} strokeWidth={2} />
+                  Convidar o primeiro operador
+                </Button>
+              </div>
+            </Card>
+          ) : (
+            <Card bodyClassName="p-0">
+              <div className="divide-y divide-line">
+                {operadores.map(op => (
+                  <div key={op.id} className="flex items-center gap-3 px-4 py-3">
+                    {/* Avatar */}
+                    <div className={[
+                      'w-10 h-10 rounded-full flex items-center justify-center shrink-0',
+                      op.status === 'ativo' ? 'bg-brand-500' : 'bg-line',
+                    ].join(' ')}>
+                      <span className={`text-sm font-bold ${op.status === 'ativo' ? 'text-surface' : 'text-ink-mute'}`}>
+                        {op.email.charAt(0).toUpperCase()}
+                      </span>
+                    </div>
+
+                    {/* Info */}
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-ink truncate">{op.email}</p>
+                      <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+                        <BadgePapel papel={op.papel} />
+                        <BadgeStatus status={op.status} />
+                      </div>
+                    </div>
+
+                    {/* Ações */}
+                    <div className="shrink-0 flex items-center gap-1.5">
+                      {op.status === 'pendente' && (
+                        <button
+                          onClick={() => copiarLinkNovamente(op)}
+                          title="Copiar novo link de convite"
+                          className="inline-flex items-center gap-1 h-8 px-2.5 rounded-md border border-line bg-surface text-xs font-medium text-ink-soft hover:text-brand-700 hover:border-brand-300 transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+                        >
+                          <RefreshCw size={12} strokeWidth={1.75} />
+                          Novo link
+                        </button>
+                      )}
+                      {op.status === 'ativo' && (
+                        <button
+                          onClick={() => setRevogarId(op.id)}
+                          title="Revogar acesso"
+                          className="inline-flex items-center gap-1 h-8 px-2.5 rounded-md border border-line bg-surface text-xs font-medium text-ink-soft hover:text-danger hover:border-danger/40 transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-danger"
+                        >
+                          <ShieldOff size={12} strokeWidth={1.75} />
+                          Revogar
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </Card>
+          )}
+        </div>
+      </PlanGate>
+
+      {/* Modal convidar */}
+      {modalConvite && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center px-4 bg-ink/40"
+          onClick={fecharModal}
+        >
+          <div
+            className="animate-modal-in bg-surface rounded-xl shadow-lg w-full max-w-sm p-6 flex flex-col gap-4"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <UserPlus size={18} strokeWidth={1.75} className="text-brand-500" />
+                <h2 className="text-base font-semibold text-ink">Convidar operador</h2>
+              </div>
+              <button onClick={fecharModal} aria-label="Fechar"
+                className="w-8 h-8 flex items-center justify-center rounded-full text-ink-mute hover:bg-brand-50 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500">
+                <X size={16} strokeWidth={1.75} />
+              </button>
+            </div>
+
+            {modoReenvio ? (
+              <div className="flex flex-col gap-4">
+                <div className="flex items-start gap-3 bg-accent/10 border border-accent/30 rounded-lg px-3 py-3">
+                  <AlertCircle size={16} strokeWidth={1.75} className="text-accent shrink-0 mt-0.5" />
+                  <p className="text-sm text-ink-soft leading-snug">
+                    Este e-mail já tem um convite pendente. Deseja gerar um novo link?
+                  </p>
+                </div>
+                <div className="flex gap-2">
+                  <Button variant="secondary" className="flex-1" onClick={() => setModoReenvio(false)}>Cancelar</Button>
+                  <Button className="flex-1" onClick={handleReenviar} disabled={gerando}>
+                    {gerando ? 'Gerando…' : 'Reenviar'}
+                  </Button>
+                </div>
+              </div>
+            ) : linkGerado ? (
+              <div className="flex flex-col gap-4">
+                <div className="flex items-start gap-3 bg-brand-50 border border-brand-200 rounded-lg px-3 py-3">
+                  <CheckCircle size={16} strokeWidth={1.75} className="text-brand-500 shrink-0 mt-0.5" />
+                  <p className="text-sm text-brand-700 font-medium leading-snug">Convite gerado!</p>
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-xs font-medium text-ink-mute">Link de convite</label>
+                  <div className="flex gap-2">
+                    <input
+                      readOnly value={linkGerado}
+                      className="flex-1 h-10 px-3 rounded-md border border-line bg-bg text-xs text-ink-soft font-mono outline-none truncate"
+                    />
+                    <button
+                      onClick={() => copiarLink(linkGerado)}
+                      className="shrink-0 h-10 px-3 rounded-md border border-line bg-surface text-xs font-medium text-brand-700 hover:bg-brand-50 transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 flex items-center gap-1.5"
+                    >
+                      {copiado
+                        ? <><Check size={13} strokeWidth={2.5} />Copiado</>
+                        : <><Copy size={13} strokeWidth={1.75} />Copiar</>}
+                    </button>
+                  </div>
+                  <p className="text-xs text-ink-mute">Envie para {formEmail}. Expira em 48h.</p>
+                </div>
+                <Button variant="secondary" className="w-full" onClick={fecharModal}>Fechar</Button>
+              </div>
+            ) : (
+              <>
+                <div className="flex flex-col gap-4">
+                  <Input
+                    id="op-email" label="E-mail do operador" type="email"
+                    placeholder="nome@email.com" value={formEmail}
+                    onChange={e => { setFormEmail(e.target.value); setErroConvite(null) }}
+                  />
+                  <div className="flex flex-col gap-1.5">
+                    <label htmlFor="op-papel" className="text-sm font-medium text-ink-soft">Papel</label>
+                    <select
+                      id="op-papel" value={formPapel}
+                      onChange={e => setFormPapel(e.target.value as 'gerente' | 'atendente' | 'caixa')}
+                      className="h-12 px-3 rounded-md border border-line bg-surface text-sm text-ink outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent transition-shadow"
+                    >
+                      <option value="gerente">Gerente — painel completo</option>
+                      <option value="atendente">Atendente — produtos e pedidos</option>
+                      <option value="caixa">Operador de caixa — somente pedidos</option>
+                    </select>
+                  </div>
+                  {erroConvite && <p className="text-xs text-danger">{erroConvite}</p>}
+                </div>
+                <div className="flex gap-2 pt-1">
+                  <Button variant="secondary" className="flex-1" onClick={fecharModal}>Cancelar</Button>
+                  <Button className="flex-1" onClick={handleGerar} disabled={gerando}>
+                    {gerando ? 'Gerando…' : 'Gerar link de convite'}
+                  </Button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Confirmação revogar */}
+      {revogarId && (
+        <ConfirmDialog
+          mensagem="O operador perderá acesso imediatamente. Deseja continuar?"
+          labelConfirmar="Revogar acesso"
+          onConfirmar={revogarAcesso}
+          onCancelar={() => setRevogarId(null)}
+        />
+      )}
+    </>
+  )
+}
+
 /* ── Página principal ───────────────────────────────────── */
 
 export default function PainelConta() {
@@ -543,6 +947,9 @@ function PainelContaInner() {
   const tabParam   = searchParams.get('tab')
   const abaAtiva: TabId = isValidTab(tabParam) ? tabParam : 'perfil'
 
+  const { papel, lojaId, isLoading: roleLoading } = useRole()
+  const isDono = papel === 'dono'
+
   const [userId, setUserId]   = useState<string | null>(null)
   const [conta, setConta]     = useState<ContaInfo | null>(null)
   const [loja, setLoja]       = useState<Loja | null | undefined>(undefined)
@@ -550,10 +957,12 @@ function PainelContaInner() {
 
   useEffect(() => { setOrigin(window.location.origin) }, [])
 
+  // Aguarda useRole resolver o lojaId antes de buscar dados da loja
   useEffect(() => {
+    if (roleLoading || !lojaId) return
     async function init() {
       const { data: { user } } = await supabase.auth.getUser()
-      if (!user) { router.push('/login'); return }
+      if (!user) { router.push('/entrar'); return }
 
       setUserId(user.id)
       setConta({
@@ -561,16 +970,25 @@ function PainelContaInner() {
         email: user.email ?? '',
       })
 
+      // Busca pelo ID resolvido pelo useRole — funciona para dono e gerente
       const { data } = await supabase
         .from('lojas')
         .select('*')
-        .eq('dono_id', user.id)
+        .eq('id', lojaId)
         .maybeSingle()
 
       setLoja(data as Loja | null)
     }
     init()
-  }, [router])
+  }, [router, lojaId, roleLoading])
+
+  // Impede acesso direto via URL a abas exclusivas de dono
+  useEffect(() => {
+    if (roleLoading) return
+    if (!isDono && abaAtiva === 'operadores') {
+      router.replace('/painel/conta?tab=perfil', { scroll: false })
+    }
+  }, [roleLoading, isDono, abaAtiva, router])
 
   function setAba(id: TabId) {
     router.replace(`/painel/conta?tab=${id}`, { scroll: false })
@@ -642,41 +1060,49 @@ function PainelContaInner() {
         </header>
 
         {/* ── Abas: sticky ── */}
-        <div className="sticky top-14 z-20 bg-bg -mx-4 px-4 pb-0 border-b border-line mb-6">
-          {/* Desktop: pills */}
-          <nav className="hidden md:flex items-center gap-1 overflow-x-auto" aria-label="Abas">
-            {TABS.map(t => (
-              <button
-                key={t.id}
-                onClick={() => setAba(t.id)}
-                className={[
-                  'flex-shrink-0 px-4 py-3 text-sm font-medium border-b-2 transition-colors duration-150',
-                  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 rounded-t',
-                  abaAtiva === t.id
-                    ? 'border-brand-500 text-brand-700'
-                    : 'border-transparent text-ink-soft hover:text-ink hover:border-line',
-                ].join(' ')}
-                aria-current={abaAtiva === t.id ? 'page' : undefined}
-              >
-                {t.label}
-              </button>
-            ))}
-          </nav>
+        {(() => {
+          // Dono vê todas as abas incluindo Operadores; gerente vê o conjunto base
+          const tabs = isDono
+            ? [...TABS_BASE, TAB_OPERADORES]
+            : TABS_BASE
+          return (
+            <div className="sticky top-14 z-20 bg-bg -mx-4 px-4 pb-0 border-b border-line mb-6">
+              {/* Desktop: pills */}
+              <nav className="hidden md:flex items-center gap-1 overflow-x-auto" aria-label="Abas">
+                {tabs.map(t => (
+                  <button
+                    key={t.id}
+                    onClick={() => setAba(t.id as TabId)}
+                    className={[
+                      'flex-shrink-0 px-4 py-3 text-sm font-medium border-b-2 transition-colors duration-150',
+                      'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 rounded-t',
+                      abaAtiva === t.id
+                        ? 'border-brand-500 text-brand-700'
+                        : 'border-transparent text-ink-soft hover:text-ink hover:border-line',
+                    ].join(' ')}
+                    aria-current={abaAtiva === t.id ? 'page' : undefined}
+                  >
+                    {t.label}
+                  </button>
+                ))}
+              </nav>
 
-          {/* Mobile: select */}
-          <div className="md:hidden py-3">
-            <select
-              value={abaAtiva}
-              onChange={e => setAba(e.target.value as TabId)}
-              className="w-full h-10 rounded-md border border-line bg-surface px-3 text-sm text-ink outline-none focus:ring-2 focus:ring-brand-500 appearance-none"
-              aria-label="Selecionar aba"
-            >
-              {TABS.map(t => (
-                <option key={t.id} value={t.id}>{t.label}</option>
-              ))}
-            </select>
-          </div>
-        </div>
+              {/* Mobile: select */}
+              <div className="md:hidden py-3">
+                <select
+                  value={abaAtiva}
+                  onChange={e => setAba(e.target.value as TabId)}
+                  className="w-full h-10 rounded-md border border-line bg-surface px-3 text-sm text-ink outline-none focus:ring-2 focus:ring-brand-500 appearance-none"
+                  aria-label="Selecionar aba"
+                >
+                  {tabs.map(t => (
+                    <option key={t.id} value={t.id}>{t.label}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          )
+        })()}
 
         {/* ── Conteúdo das abas ── */}
 
@@ -751,6 +1177,11 @@ function PainelContaInner() {
             </Card>
           )}
         </div>
+
+        {/* Operadores — somente dono */}
+        {isDono && abaAtiva === 'operadores' && loja && userId && (
+          <TabOperadores lojaId={loja.id} donoId={userId} />
+        )}
 
       </PageContainer>
     </div>

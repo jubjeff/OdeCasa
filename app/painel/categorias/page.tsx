@@ -2,8 +2,8 @@
 
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
 import { Pencil, Trash2, Plus, Tags } from 'lucide-react'
+import { useRole } from '@/hooks/useRole'
 import { supabase } from '@/lib/supabase'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
@@ -32,7 +32,7 @@ interface Categoria {
 /* ── Página ─────────────────────────────────────────── */
 
 export default function Categorias() {
-  const router = useRouter()
+  const { lojaId } = useRole()
 
   const [loja, setLoja]             = useState<Loja | null | undefined>(undefined)
   const [categorias, setCategorias] = useState<Categoria[]>([])
@@ -54,32 +54,17 @@ export default function Categorias() {
   /* ── Inicialização ──────────────────────────────── */
 
   useEffect(() => {
+    if (!lojaId) return
     async function init() {
-      const { data: { session } } = await supabase.auth.getSession()
-      if (!session) { router.push('/login'); return }
-
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) { router.push('/login'); return }
-
-      const { data } = await supabase
-        .from('lojas')
-        .select('id, nome')
-        .eq('dono_id', user.id)
-        .maybeSingle()
-
+      const { data } = await supabase.from('lojas').select('id, nome').eq('id', lojaId).single()
       const lojaEncontrada = data ? (data as Loja) : null
       setLoja(lojaEncontrada)
-
       if (lojaEncontrada) {
-        await Promise.all([
-          buscarCategorias(lojaEncontrada.id),
-          buscarContagem(lojaEncontrada.id),
-        ])
+        await Promise.all([buscarCategorias(lojaEncontrada.id), buscarContagem(lojaEncontrada.id)])
       }
     }
-
     init()
-  }, [router])
+  }, [lojaId])
 
   /* ── Helpers ────────────────────────────────────── */
 

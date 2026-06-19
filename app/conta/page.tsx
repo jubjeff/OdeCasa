@@ -7,7 +7,9 @@ import {
   ArrowLeft, MapPin, Plus, Pencil, Trash2, LogOut,
   ChevronDown, ChevronUp, ShoppingBag, Repeat, Check, XCircle,
   MoreHorizontal, Key, Lock, Phone, Building2, Truck, Wallet,
-  MessageCircle, X, Star, ExternalLink,
+  MessageCircle, X, Star, ExternalLink, LayoutDashboard, ChevronRight,
+  Users, UserPlus, Copy, AlertCircle, CheckCircle,
+  Webhook, Eye, EyeOff, FlaskConical, Trash,
 } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { Button } from '@/components/ui/Button'
@@ -18,6 +20,9 @@ import { PageContainer } from '@/components/ui/PageContainer'
 import { IconButton } from '@/components/ui/IconButton'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { NotificationBell } from '@/components/ui/NotificationBell'
+import { ThemeToggle } from '@/components/ui/ThemeToggle'
+import { PlanGate } from '@/components/PlanGate'
+import { PlanProvider } from '@/hooks/usePlan'
 
 /* ── Tipos ───────────────────────────────────────── */
 
@@ -809,12 +814,843 @@ function SecaoLoja({ loja, onAtualizar }: SecaoLojaProps) {
   )
 }
 
+/* ── Operadores ──────────────────────────────────── */
+
+interface Operador {
+  id: string
+  email: string
+  papel: 'gerente' | 'atendente' | 'caixa'
+  status: 'pendente' | 'ativo' | 'inativo'
+  invite_expires_at: string | null
+  user_id: string | null
+  criado_em: string
+}
+
+const PAPEL_LABEL: Record<string, string> = {
+  gerente: 'Gerente',
+  atendente: 'Atendente',
+  caixa: 'Operador de caixa',
+}
+
+function SecaoOperadores({ lojaId, donoId }: { lojaId: string; donoId: string }) {
+  const [operadores, setOperadores] = useState<Operador[]>([])
+  const [carregando, setCarregando] = useState(true)
+  const [sheetAberto, setSheetAberto] = useState(false)
+  const [formEmail, setFormEmail] = useState('')
+  const [formPapel, setFormPapel] = useState<'gerente' | 'atendente' | 'caixa'>('atendente')
+  const [linkGerado, setLinkGerado] = useState<string | null>(null)
+  const [gerando, setGerando] = useState(false)
+  const [erroConvite, setErroConvite] = useState<string | null>(null)
+  const [copiado, setCopiado] = useState(false)
+  const [modoReenvio, setModoReenvio] = useState(false)
+
+  async function carregarOperadores() {
+    const { data } = await supabase
+      .from('operadores')
+      .select('id, email, papel, status, invite_expires_at, user_id, criado_em')
+      .eq('loja_id', lojaId)
+      .order('criado_em', { ascending: false })
+    setOperadores((data as Operador[]) ?? [])
+    setCarregando(false)
+  }
+
+  useEffect(() => { carregarOperadores() }, [lojaId])
+
+  function resetForm() {
+    setFormEmail('')
+    setFormPapel('atendente')
+    setLinkGerado(null)
+    setErroConvite(null)
+    setCopiado(false)
+    setModoReenvio(false)
+  }
+
+  function fecharSheet() { setSheetAberto(false); resetForm() }
+
+  async function gerarConvite() {
+    const email = formEmail.trim().toLowerCase()
+    if (!email || !email.includes('@')) { setErroConvite('Informe um e-mail válido'); return }
+    setGerando(true)
+    setErroConvite(null)
+
+    const { data: existente } = await supabase
+      .from('operadores')
+      .select('id, status')
+      .eq('loja_id', lojaId)
+      .eq('email', email)
+      .maybeSingle()
+
+    if (existente) {
+      if ((existente as { status: string }).status === 'ativo') {
+        setErroConvite('Este e-mail já é operador desta loja.')
+        setGerando(false)
+        return
+      }
+      setModoReenvio(true)
+      setGerando(false)
+      return
+    }
+
+    const token = crypto.randomUUID().replace(/-/g, '')
+    const { error } = await supabase.from('operadores').insert({
+      loja_id: lojaId,
+      email,
+      papel: formPapel,
+      status: 'pendente',
+      convidado_por: donoId,
+      invite_token: token,
+      invite_expires_at: new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString(),
+    })
+    if (error) { setErroConvite('Erro ao gerar convite. Tente novamente.'); setGerando(false); return }
+    setLinkGerado(`${window.location.origin}/convite/${token}`)
+    await carregarOperadores()
+    setGerando(false)
+  }
+
+  async function reenviarConvite() {
+    const email = formEmail.trim().toLowerCase()
+    setGerando(true)
+    const token = crypto.randomUUID().replace(/-/g, '')
+    const { error } = await supabase
+      .from('operadores')
+      .update({ invite_token: token, invite_expires_at: new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString(), papel: formPapel })
+      .eq('loja_id', lojaId)
+      .eq('email', email)
+    if (error) { setErroConvite('Erro ao reenviar. Tente novamente.'); setGerando(false); return }
+    setLinkGerado(`${window.location.origin}/convite/${token}`)
+    setModoReenvio(false)
+    await carregarOperadores()
+    setGerando(false)
+  }
+
+  function copiarLink() {
+    if (!linkGerado) return
+    navigator.clipboard.writeText(linkGerado)
+    setCopiado(true)
+    setTimeout(() => setCopiado(false), 2000)
+  }
+
+  return (
+    <>
+      <div className="flex flex-col gap-3">
+        <div className="flex items-center justify-between">
+          <p className="text-base font-semibold text-ink">Operadores</p>
+          <button
+            onClick={() => setSheetAberto(true)}
+            className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-md border border-line bg-surface text-sm font-medium text-brand-700 hover:bg-brand-50 transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+          >
+            <UserPlus size={15} strokeWidth={2} />
+            Convidar
+          </button>
+        </div>
+
+        {carregando ? (
+          <div className="space-y-2">
+            {[1, 2].map(i => (
+              <div key={i} className="rounded-xl border border-line p-4 animate-pulse flex gap-3">
+                <div className="w-9 h-9 rounded-full bg-line shrink-0" />
+                <div className="flex-1 space-y-2">
+                  <div className="h-3.5 w-40 rounded bg-line" />
+                  <div className="h-3 w-24 rounded bg-line" />
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : operadores.length === 0 ? (
+          <div className="rounded-xl border border-dashed border-line py-12 text-center flex flex-col items-center gap-3">
+            <Users size={32} strokeWidth={1.25} className="text-ink-mute" />
+            <div>
+              <p className="text-sm font-semibold text-ink">Nenhum operador</p>
+              <p className="text-xs text-ink-mute mt-0.5">Convide sua equipe para ajudar a gerenciar a loja.</p>
+            </div>
+            <button
+              onClick={() => setSheetAberto(true)}
+              className="inline-flex items-center gap-1.5 h-9 px-4 rounded-md bg-brand-50 text-brand-700 text-sm font-medium hover:bg-brand-100 transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+            >
+              <UserPlus size={15} strokeWidth={2} />
+              Convidar operador
+            </button>
+          </div>
+        ) : (
+          <div className="flex flex-col gap-2">
+            {operadores.map(op => (
+              <div key={op.id} className="bg-surface rounded-xl px-4 py-3 shadow-sm flex items-center gap-3">
+                <div className="w-9 h-9 rounded-full bg-brand-50 border border-brand-200 flex items-center justify-center shrink-0">
+                  <span className="text-sm font-semibold text-brand-700">
+                    {op.email.charAt(0).toUpperCase()}
+                  </span>
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-ink truncate">{op.email}</p>
+                  <p className="text-xs text-ink-mute">{PAPEL_LABEL[op.papel] ?? op.papel}</p>
+                </div>
+                <span className={[
+                  'shrink-0 inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium',
+                  op.status === 'ativo'
+                    ? 'bg-brand-100 text-brand-700'
+                    : op.status === 'pendente'
+                      ? 'bg-line text-ink-soft'
+                      : 'bg-danger/10 text-danger',
+                ].join(' ')}>
+                  {op.status === 'ativo' ? 'Ativo' : op.status === 'pendente' ? 'Pendente' : 'Inativo'}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {sheetAberto && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center px-4 bg-ink/40"
+          onClick={fecharSheet}
+        >
+          <div
+            className="animate-modal-in bg-surface rounded-xl shadow-lg w-full max-w-sm p-6 flex flex-col gap-4"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <UserPlus size={18} strokeWidth={1.75} className="text-brand-500" />
+                <h2 className="text-base font-semibold text-ink">Convidar operador</h2>
+              </div>
+              <button onClick={fecharSheet} aria-label="Fechar"
+                className="w-8 h-8 flex items-center justify-center rounded-full text-ink-mute hover:bg-brand-50 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500">
+                <X size={16} strokeWidth={1.75} />
+              </button>
+            </div>
+
+            {modoReenvio ? (
+              <div className="flex flex-col gap-4">
+                <div className="flex items-start gap-3 bg-accent/10 border border-accent/30 rounded-lg px-3 py-3">
+                  <AlertCircle size={16} strokeWidth={1.75} className="text-accent shrink-0 mt-0.5" />
+                  <p className="text-sm text-ink-soft leading-snug">
+                    Este e-mail já tem um convite pendente. Deseja gerar um novo link?
+                  </p>
+                </div>
+                <div className="flex gap-2">
+                  <Button variant="secondary" className="flex-1" onClick={() => setModoReenvio(false)}>Cancelar</Button>
+                  <Button variant="primary" className="flex-1" onClick={reenviarConvite} disabled={gerando}>
+                    {gerando ? 'Gerando…' : 'Reenviar convite'}
+                  </Button>
+                </div>
+              </div>
+            ) : linkGerado ? (
+              <div className="flex flex-col gap-4">
+                <div className="flex items-start gap-3 bg-brand-50 border border-brand-200 rounded-lg px-3 py-3">
+                  <CheckCircle size={16} strokeWidth={1.75} className="text-brand-500 shrink-0 mt-0.5" />
+                  <p className="text-sm text-brand-700 leading-snug font-medium">Convite gerado com sucesso!</p>
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-xs font-medium text-ink-mute">Link de convite</label>
+                  <div className="flex gap-2">
+                    <input
+                      readOnly
+                      value={linkGerado}
+                      className="flex-1 h-10 px-3 rounded-md border border-line bg-bg text-xs text-ink-soft font-mono outline-none truncate"
+                    />
+                    <button
+                      onClick={copiarLink}
+                      className="shrink-0 h-10 px-3 rounded-md border border-line bg-surface text-xs font-medium text-brand-700 hover:bg-brand-50 transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 flex items-center gap-1.5"
+                    >
+                      {copiado
+                        ? <><Check size={13} strokeWidth={2.5} />Copiado</>
+                        : <><Copy size={13} strokeWidth={1.75} />Copiar</>}
+                    </button>
+                  </div>
+                  <p className="text-xs text-ink-mute">
+                    Envie este link para {formEmail}. Expira em 48 horas.
+                  </p>
+                </div>
+                <Button variant="secondary" className="w-full" onClick={fecharSheet}>Fechar</Button>
+              </div>
+            ) : (
+              <>
+                <div className="flex flex-col gap-4">
+                  <Input
+                    id="convite-email"
+                    label="E-mail do operador"
+                    type="email"
+                    placeholder="nome@email.com"
+                    value={formEmail}
+                    onChange={e => { setFormEmail(e.target.value); setErroConvite(null) }}
+                  />
+                  <div className="flex flex-col gap-1.5">
+                    <label htmlFor="convite-papel" className="text-sm font-medium text-ink-soft">Papel</label>
+                    <select
+                      id="convite-papel"
+                      value={formPapel}
+                      onChange={e => setFormPapel(e.target.value as 'gerente' | 'atendente' | 'caixa')}
+                      className="h-12 px-3 rounded-md border border-line bg-surface text-sm text-ink outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent transition-shadow"
+                    >
+                      <option value="gerente">Gerente — painel completo</option>
+                      <option value="atendente">Atendente — produtos e pedidos</option>
+                      <option value="caixa">Operador de caixa — somente pedidos</option>
+                    </select>
+                  </div>
+                  {erroConvite && <p className="text-xs text-danger">{erroConvite}</p>}
+                </div>
+                <div className="flex gap-2 pt-1">
+                  <Button variant="secondary" className="flex-1" onClick={fecharSheet}>Cancelar</Button>
+                  <Button variant="primary" className="flex-1" onClick={gerarConvite} disabled={gerando}>
+                    {gerando ? 'Gerando…' : 'Gerar convite'}
+                  </Button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+    </>
+  )
+}
+
+/* ── Seção API Key ───────────────────────────────── */
+
+interface ApiKeyRow {
+  id: string
+  criado_em: string
+  ultimo_uso: string | null
+}
+
+function SecaoApiKey({ lojaId }: { lojaId: string }) {
+  const [apiKey, setApiKey] = useState<ApiKeyRow | null | undefined>(undefined)
+  const [keyGerada, setKeyGerada] = useState<string | null>(null)
+  const [gerando, setGerando] = useState(false)
+  const [copiado, setCopiado] = useState(false)
+  const [confirmarRevogar, setConfirmarRevogar] = useState(false)
+  const [revogando, setRevogando] = useState(false)
+  const [accordionAberto, setAccordionAberto] = useState(false)
+
+  async function carregar() {
+    const { data } = await supabase
+      .from('api_keys')
+      .select('id, criado_em, ultimo_uso')
+      .eq('loja_id', lojaId)
+      .maybeSingle()
+    setApiKey(data as ApiKeyRow | null)
+  }
+
+  useEffect(() => { carregar() }, [lojaId])
+
+  async function handleGerar() {
+    setGerando(true)
+    const raw = Array.from(crypto.getRandomValues(new Uint8Array(32)))
+      .map(b => b.toString(16).padStart(2, '0'))
+      .join('')
+    const key = 'odecasa_sk_' + raw
+
+    const encoder = new TextEncoder()
+    const hashBuffer = await crypto.subtle.digest('SHA-256', encoder.encode(key))
+    const hash = Array.from(new Uint8Array(hashBuffer))
+      .map(b => b.toString(16).padStart(2, '0'))
+      .join('')
+
+    const { error } = await supabase.from('api_keys').insert({ loja_id: lojaId, key_hash: hash })
+    setGerando(false)
+    if (error) return
+    setKeyGerada(key)
+    await carregar()
+  }
+
+  async function handleRevogar() {
+    if (!apiKey) return
+    setRevogando(true)
+    await supabase.from('api_keys').delete().eq('id', apiKey.id)
+    setApiKey(null)
+    setKeyGerada(null)
+    setConfirmarRevogar(false)
+    setRevogando(false)
+  }
+
+  function handleCopiar() {
+    if (!keyGerada) return
+    navigator.clipboard.writeText(keyGerada)
+    setCopiado(true)
+    setTimeout(() => setCopiado(false), 2000)
+  }
+
+  const dominioBase = typeof window !== 'undefined' ? window.location.origin : 'https://seudominio.com'
+
+  if (apiKey === undefined) {
+    return (
+      <div className="bg-surface rounded-xl shadow-sm overflow-hidden animate-pulse">
+        <div className="h-12 bg-line" />
+        <div className="px-4 py-4 space-y-3">
+          <div className="h-11 rounded-md bg-line" />
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <>
+      <div className="bg-surface rounded-xl shadow-sm overflow-hidden">
+        <div className="flex items-center gap-2 px-4 py-3 border-b border-line">
+          <Key size={16} strokeWidth={1.75} className="text-brand-500" />
+          <p className="text-sm font-semibold text-ink flex-1">API Key</p>
+        </div>
+
+        <div className="px-4 py-4 flex flex-col gap-4">
+          {apiKey === null && !keyGerada ? (
+            /* ── Sem key ── */
+            <div className="flex flex-col gap-3">
+              <p className="text-xs text-ink-mute leading-relaxed">
+                Acesse pedidos e produtos da sua loja via API REST. A chave dá acesso somente
+                à sua loja e não pode ser recuperada após geração.
+              </p>
+              <Button variant="primary" onClick={handleGerar} disabled={gerando} className="self-start">
+                {gerando ? 'Gerando…' : 'Gerar API Key'}
+              </Button>
+            </div>
+          ) : keyGerada ? (
+            /* ── Key recém-gerada (exibição única) ── */
+            <div className="flex flex-col gap-3">
+              <div className="flex items-start gap-2 bg-accent/10 border border-accent/30 rounded-lg px-3 py-2.5">
+                <AlertCircle size={14} strokeWidth={1.75} className="text-accent shrink-0 mt-0.5" />
+                <p className="text-xs text-ink-soft leading-snug font-medium">
+                  Copie agora — esta chave não será exibida novamente.
+                </p>
+              </div>
+              <div className="flex flex-col gap-1">
+                <p className="text-xs font-medium text-ink-mute">Sua API Key</p>
+                <div className="flex gap-2">
+                  <input
+                    readOnly
+                    value={keyGerada}
+                    className="flex-1 h-11 px-3 rounded-md border border-line bg-bg text-xs text-ink font-mono outline-none truncate"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleCopiar}
+                    className="shrink-0 h-11 px-3 flex items-center gap-1.5 rounded-md border border-line bg-surface text-sm font-medium text-brand-700 hover:bg-brand-50 transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+                  >
+                    {copiado
+                      ? <><Check size={13} strokeWidth={2.5} />Copiado</>
+                      : <><Copy size={13} strokeWidth={1.75} />Copiar</>}
+                  </button>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setKeyGerada(null)}
+                className="self-start text-xs font-medium text-ink-mute hover:text-ink transition-colors"
+              >
+                Ok, guardei minha chave
+              </button>
+            </div>
+          ) : (
+            /* ── Key existente ── */
+            <div className="flex flex-col gap-4">
+              <div className="flex flex-col gap-1">
+                <p className="text-xs font-medium text-ink-mute">Chave ativa</p>
+                <input
+                  readOnly
+                  value="odecasa_sk_••••••••••••••••••••••••••••••••"
+                  className="h-11 px-3 rounded-md border border-line bg-bg text-sm text-ink-soft font-mono outline-none"
+                />
+              </div>
+              <div className="flex gap-4 text-xs text-ink-mute">
+                <span>Criada em {formatarLogData(apiKey!.criado_em)}</span>
+                {apiKey!.ultimo_uso && (
+                  <span>Último uso {formatarLogData(apiKey!.ultimo_uso)}</span>
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={() => setConfirmarRevogar(true)}
+                className="self-start inline-flex items-center gap-1.5 h-10 px-4 rounded-md border border-danger/30 bg-surface text-sm font-medium text-danger hover:bg-danger/10 transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-danger"
+              >
+                <Trash size={15} strokeWidth={1.75} />
+                Revogar chave
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Accordion "Como usar a API" */}
+      <div className="bg-surface rounded-xl shadow-sm overflow-hidden">
+        <button
+          type="button"
+          onClick={() => setAccordionAberto(v => !v)}
+          className="w-full flex items-center justify-between px-4 py-3 text-sm font-semibold text-ink hover:bg-brand-50 transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-inset"
+          aria-expanded={accordionAberto}
+        >
+          Como usar a API
+          <ChevronDown
+            size={16}
+            strokeWidth={2}
+            className={['text-ink-mute transition-transform duration-200', accordionAberto ? 'rotate-180' : ''].join(' ')}
+          />
+        </button>
+        {accordionAberto && (
+          <div className="px-4 pb-4 flex flex-col gap-3 border-t border-line pt-3">
+            <p className="text-xs text-ink-mute leading-relaxed">
+              Passe sua API Key no header <code className="font-mono bg-line px-1 rounded">Authorization: Bearer</code>.
+            </p>
+            <div className="flex flex-col gap-1.5">
+              <p className="text-xs font-medium text-ink-soft">Listar pedidos</p>
+              <pre className="bg-bg rounded-lg p-3 text-xs font-mono text-ink-soft overflow-x-auto leading-relaxed whitespace-pre">{`curl -H "Authorization: Bearer odecasa_sk_SUA_CHAVE" \\
+  "${dominioBase}/api/v1/pedidos?status=recebido"`}</pre>
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <p className="text-xs font-medium text-ink-soft">Listar produtos disponíveis</p>
+              <pre className="bg-bg rounded-lg p-3 text-xs font-mono text-ink-soft overflow-x-auto leading-relaxed whitespace-pre">{`curl -H "Authorization: Bearer odecasa_sk_SUA_CHAVE" \\
+  "${dominioBase}/api/v1/produtos?disponivel=true"`}</pre>
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <p className="text-xs font-medium text-ink-soft">Parâmetros disponíveis</p>
+              <div className="bg-bg rounded-lg p-3 text-xs font-mono text-ink-soft leading-relaxed space-y-1">
+                <p><span className="text-brand-700">GET</span> /api/v1/pedidos</p>
+                <p className="pl-3 text-ink-mute">status, limit (máx 100), offset</p>
+                <p className="mt-2"><span className="text-brand-700">GET</span> /api/v1/produtos</p>
+                <p className="pl-3 text-ink-mute">disponivel, categoria_id, limit (máx 100), offset</p>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {confirmarRevogar && (
+        <ConfirmDialog
+          mensagem="Revogar a API Key? Qualquer integração usando esta chave deixará de funcionar imediatamente."
+          labelConfirmar="Revogar"
+          onConfirmar={handleRevogar}
+          onCancelar={() => setConfirmarRevogar(false)}
+        />
+      )}
+    </>
+  )
+}
+
+/* ── Seção Integrações / Webhook ─────────────────── */
+
+interface WebhookConfig {
+  id: string
+  url: string
+  secret: string
+  ativo: boolean
+}
+
+interface WebhookLog {
+  id: string
+  evento: string
+  url: string
+  status_http: number | null
+  sucesso: boolean
+  criado_em: string
+}
+
+function formatarLogData(iso: string): string {
+  const d = new Date(iso)
+  return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+}
+
+function SecaoIntegracoes({ lojaId }: { lojaId: string }) {
+  const [config, setConfig] = useState<WebhookConfig | null | undefined>(undefined)
+  const [logs, setLogs] = useState<WebhookLog[]>([])
+  const [urlForm, setUrlForm] = useState('')
+  const [salvando, setSalvando] = useState(false)
+  const [erroUrl, setErroUrl] = useState<string | null>(null)
+  const [secretVisivel, setSecretVisivel] = useState(false)
+  const [copiado, setCopiado] = useState(false)
+  const [testando, setTestando] = useState(false)
+  const [confirmarRemover, setConfirmarRemover] = useState(false)
+  const [removendo, setRemovendo] = useState(false)
+  const [accordionAberto, setAccordionAberto] = useState(false)
+
+  async function carregar() {
+    const { data: cfg } = await supabase
+      .from('webhook_configs')
+      .select('id, url, secret, ativo')
+      .eq('loja_id', lojaId)
+      .maybeSingle()
+    setConfig(cfg as WebhookConfig | null)
+
+    const { data: lgData } = await supabase
+      .from('webhook_logs')
+      .select('id, evento, url, status_http, sucesso, criado_em')
+      .eq('loja_id', lojaId)
+      .order('criado_em', { ascending: false })
+      .limit(10)
+    setLogs((lgData as WebhookLog[]) ?? [])
+  }
+
+  useEffect(() => { carregar() }, [lojaId])
+
+  async function handleAtivar() {
+    const url = urlForm.trim()
+    if (!url.startsWith('http')) { setErroUrl('Informe uma URL válida (https://...)'); return }
+    setSalvando(true)
+    const secret = crypto.randomUUID().replace(/-/g, '')
+    const { error } = await supabase.from('webhook_configs').insert({
+      loja_id: lojaId, url, secret, ativo: true,
+    })
+    setSalvando(false)
+    if (error) { setErroUrl('Não foi possível salvar. Tente novamente.'); return }
+    await carregar()
+  }
+
+  async function handleToggleAtivo() {
+    if (!config) return
+    const novoAtivo = !config.ativo
+    await supabase.from('webhook_configs').update({ ativo: novoAtivo }).eq('id', config.id)
+    setConfig(c => c ? { ...c, ativo: novoAtivo } : c)
+  }
+
+  async function handleTestar() {
+    if (!config) return
+    setTestando(true)
+    await fetch('/api/webhook/disparar', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ loja_id: lojaId, evento: 'webhook.teste', pedido_id: null }),
+    }).catch(() => {})
+    await carregar()
+    setTestando(false)
+  }
+
+  async function handleRemover() {
+    if (!config) return
+    setRemovendo(true)
+    await supabase.from('webhook_configs').delete().eq('id', config.id)
+    setConfig(null)
+    setLogs([])
+    setConfirmarRemover(false)
+    setRemovendo(false)
+  }
+
+  function handleCopiarSecret() {
+    if (!config) return
+    navigator.clipboard.writeText(config.secret)
+    setCopiado(true)
+    setTimeout(() => setCopiado(false), 2000)
+  }
+
+  if (config === undefined) {
+    return (
+      <div className="space-y-3 animate-pulse">
+        <div className="h-12 rounded-xl bg-line" />
+        <div className="h-12 rounded-xl bg-line" />
+      </div>
+    )
+  }
+
+  return (
+    <div className="flex flex-col gap-5">
+
+      {/* Seção Webhook */}
+      <div className="bg-surface rounded-xl shadow-sm overflow-hidden">
+        <div className="flex items-center gap-2 px-4 py-3 border-b border-line">
+          <Webhook size={16} strokeWidth={1.75} className="text-brand-500" />
+          <p className="text-sm font-semibold text-ink flex-1">Webhook</p>
+        </div>
+
+        <div className="px-4 py-4 flex flex-col gap-4">
+          {config === null ? (
+            /* ── Estado: não configurado ── */
+            <div className="flex flex-col gap-3">
+              <p className="text-xs text-ink-mute leading-relaxed">
+                Receba notificações em tempo real quando pedidos forem criados ou atualizados.
+              </p>
+              <div className="flex flex-col gap-1">
+                <Input
+                  id="webhook-url"
+                  label="URL do webhook"
+                  placeholder="https://seusite.com/webhook"
+                  value={urlForm}
+                  onChange={e => { setUrlForm(e.target.value); setErroUrl(null) }}
+                />
+                {erroUrl && <p className="text-xs text-danger">{erroUrl}</p>}
+              </div>
+              <Button variant="primary" onClick={handleAtivar} disabled={salvando} className="self-start">
+                {salvando ? 'Ativando…' : 'Ativar webhook'}
+              </Button>
+            </div>
+          ) : (
+            /* ── Estado: configurado ── */
+            <div className="flex flex-col gap-4">
+
+              {/* URL ativa */}
+              <div className="flex flex-col gap-1">
+                <p className="text-xs font-medium text-ink-mute">URL ativa</p>
+                <input
+                  readOnly
+                  value={config.url}
+                  className="h-11 px-3 rounded-md border border-line bg-bg text-sm text-ink-soft font-mono outline-none truncate"
+                />
+              </div>
+
+              {/* Toggle ativo/inativo */}
+              <div className="flex items-center justify-between gap-4">
+                <div>
+                  <p className="text-sm text-ink">Status do webhook</p>
+                  <p className="text-xs text-ink-mute mt-0.5">{config.ativo ? 'Disparando eventos' : 'Pausado — eventos não serão enviados'}</p>
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={config.ativo}
+                  onClick={handleToggleAtivo}
+                  className={[
+                    'relative shrink-0 w-11 h-6 rounded-full transition-colors duration-200',
+                    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2 cursor-pointer',
+                    config.ativo ? 'bg-brand-500' : 'bg-line',
+                  ].join(' ')}
+                >
+                  <span className={[
+                    'absolute top-0.5 left-0.5 w-5 h-5 bg-surface rounded-full shadow-sm transition-transform duration-200',
+                    config.ativo ? 'translate-x-5' : 'translate-x-0',
+                  ].join(' ')} />
+                </button>
+              </div>
+
+              {/* Secret */}
+              <div className="flex flex-col gap-1">
+                <p className="text-xs font-medium text-ink-mute">Secret (HMAC-SHA256)</p>
+                <div className="flex gap-2">
+                  <input
+                    readOnly
+                    type={secretVisivel ? 'text' : 'password'}
+                    value={config.secret}
+                    className="flex-1 h-11 px-3 rounded-md border border-line bg-bg text-sm text-ink font-mono outline-none"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setSecretVisivel(v => !v)}
+                    title={secretVisivel ? 'Ocultar' : 'Revelar'}
+                    aria-label={secretVisivel ? 'Ocultar secret' : 'Revelar secret'}
+                    className="shrink-0 h-11 w-11 flex items-center justify-center rounded-md border border-line bg-surface text-ink-soft hover:bg-brand-50 hover:text-brand-700 transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+                  >
+                    {secretVisivel ? <EyeOff size={16} strokeWidth={1.75} /> : <Eye size={16} strokeWidth={1.75} />}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleCopiarSecret}
+                    title="Copiar secret"
+                    aria-label="Copiar secret"
+                    className="shrink-0 h-11 px-3 flex items-center gap-1.5 rounded-md border border-line bg-surface text-sm font-medium text-brand-700 hover:bg-brand-50 transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+                  >
+                    {copiado ? <><Check size={13} strokeWidth={2.5} />Copiado</> : <><Copy size={13} strokeWidth={1.75} />Copiar</>}
+                  </button>
+                </div>
+              </div>
+
+              {/* Ações */}
+              <div className="flex gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={handleTestar}
+                  disabled={testando}
+                  className="inline-flex items-center gap-1.5 h-10 px-4 rounded-md border border-line bg-surface text-sm font-medium text-brand-700 hover:bg-brand-50 transition-colors duration-150 disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+                >
+                  <FlaskConical size={15} strokeWidth={1.75} />
+                  {testando ? 'Testando…' : 'Testar webhook'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setConfirmarRemover(true)}
+                  className="inline-flex items-center gap-1.5 h-10 px-4 rounded-md border border-danger/30 bg-surface text-sm font-medium text-danger hover:bg-danger/10 transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-danger"
+                >
+                  <Trash size={15} strokeWidth={1.75} />
+                  Remover
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Tabela de logs */}
+      <div className="bg-surface rounded-xl shadow-sm overflow-hidden">
+        <div className="px-4 py-3 border-b border-line">
+          <p className="text-sm font-semibold text-ink">Últimos disparos</p>
+        </div>
+        {logs.length === 0 ? (
+          <div className="px-4 py-8 text-center">
+            <p className="text-sm text-ink-mute">Nenhum disparo registrado ainda.</p>
+          </div>
+        ) : (
+          <div className="divide-y divide-line">
+            {logs.map(log => (
+              <div key={log.id} className="px-4 py-3 flex items-center gap-3 text-xs">
+                <span className="shrink-0 px-2 py-0.5 rounded-full bg-line text-ink-soft font-medium truncate max-w-[140px]">
+                  {log.evento}
+                </span>
+                <span className="shrink-0 font-mono text-ink-soft w-9 text-center">
+                  {log.status_http ?? '—'}
+                </span>
+                <span className={[
+                  'shrink-0 px-2 py-0.5 rounded-full font-medium',
+                  log.sucesso ? 'bg-brand-100 text-brand-700' : 'bg-danger/10 text-danger',
+                ].join(' ')}>
+                  {log.sucesso ? 'sucesso' : 'falha'}
+                </span>
+                <span className="ml-auto shrink-0 text-ink-mute tabular-nums">
+                  {formatarLogData(log.criado_em)}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Accordion verificar assinatura */}
+      <div className="bg-surface rounded-xl shadow-sm overflow-hidden">
+        <button
+          type="button"
+          onClick={() => setAccordionAberto(v => !v)}
+          className="w-full flex items-center justify-between px-4 py-3 text-sm font-semibold text-ink hover:bg-brand-50 transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-inset"
+          aria-expanded={accordionAberto}
+        >
+          Como verificar a assinatura
+          <ChevronDown
+            size={16}
+            strokeWidth={2}
+            className={['text-ink-mute transition-transform duration-200', accordionAberto ? 'rotate-180' : ''].join(' ')}
+          />
+        </button>
+        {accordionAberto && (
+          <div className="px-4 pb-4 flex flex-col gap-2 border-t border-line pt-3">
+            <p className="text-xs text-ink-mute leading-relaxed">
+              Cada requisição inclui o header <code className="font-mono bg-line px-1 rounded">X-OdeCasa-Signature</code> com um HMAC-SHA256 do body. Verifique assim:
+            </p>
+            <pre className="bg-bg rounded-lg p-3 text-xs font-mono text-ink-soft overflow-x-auto leading-relaxed whitespace-pre">{`const { createHmac } = require('crypto')
+
+const assinatura = createHmac('sha256', SEU_SECRET)
+  .update(JSON.stringify(req.body))
+  .digest('hex')
+
+if (assinatura !== req.headers['x-odecasa-signature']) {
+  return res.status(401).send('Assinatura inválida')
+}`}</pre>
+          </div>
+        )}
+      </div>
+
+      {/* Seção API Key */}
+      <SecaoApiKey lojaId={lojaId} />
+
+      {/* Modal confirmação remoção webhook */}
+      {confirmarRemover && (
+        <ConfirmDialog
+          mensagem="Remover o webhook? Todos os disparos serão interrompidos. Esta ação não pode ser desfeita."
+          labelConfirmar="Remover"
+          onConfirmar={handleRemover}
+          onCancelar={() => setConfirmarRemover(false)}
+        />
+      )}
+    </div>
+  )
+}
+
 /* ── Página ──────────────────────────────────────── */
 
-type Aba = 'pedidos' | 'enderecos' | 'loja'
+type Aba = 'pedidos' | 'enderecos' | 'loja' | 'operadores' | 'integracoes'
 type FiltroPedidos = 'todos' | 'andamento' | 'concluidos'
 
-export default function ContaCliente() {
+function ContaCliente() {
   const router = useRouter()
 
   const [cliente, setCliente]     = useState<Cliente | null | undefined>(undefined)
@@ -834,6 +1670,7 @@ export default function ContaCliente() {
   const menuRef = useRef<HTMLDivElement>(null)
 
   const [loja, setLoja]           = useState<LojaOwner | null | undefined>(undefined)
+  const [ehOperador, setEhOperador] = useState(false)
 
   const [editandoSenha, setEditandoSenha]   = useState(false)
   const [formSenha, setFormSenha]           = useState({ nova: '', confirmar: '' })
@@ -891,6 +1728,16 @@ export default function ContaCliente() {
         .select('id,nome,slug,endereco,whatsapp,taxa_entrega,pedido_minimo,chave_pix,avaliacoes_ativas')
         .eq('dono_id', user.id).maybeSingle()
       setLoja(lojaData as LojaOwner | null)
+
+      if (!lojaData) {
+        const { data: opData } = await supabase
+          .from('operadores')
+          .select('loja_id')
+          .eq('user_id', user.id)
+          .eq('status', 'ativo')
+          .maybeSingle()
+        if (opData) setEhOperador(true)
+      }
     }
     init()
   }, [router, carregarEnderecos, carregarPedidos])
@@ -1005,7 +1852,11 @@ export default function ContaCliente() {
   const abas: { id: Aba; label: string }[] = [
     { id: 'pedidos', label: 'Pedidos' },
     { id: 'enderecos', label: 'Endereços' },
-    ...(loja ? [{ id: 'loja' as Aba, label: 'Minha loja' }] : []),
+    ...(loja ? [
+      { id: 'loja' as Aba, label: 'Minha loja' },
+      { id: 'operadores' as Aba, label: 'Operadores' },
+      { id: 'integracoes' as Aba, label: 'Integrações' },
+    ] : []),
   ]
 
   return (
@@ -1022,6 +1873,7 @@ export default function ContaCliente() {
         title="Minha conta"
         right={
           <div className="flex items-center gap-1">
+            <ThemeToggle />
             <NotificationBell />
             <div className="relative" ref={menuRef}>
               <button
@@ -1074,6 +1926,23 @@ export default function ContaCliente() {
               </span>
             </div>
           </div>
+
+          {/* Acesso ao painel (operadores) */}
+          {ehOperador && (
+            <Link
+              href="/painel"
+              className="flex items-center gap-3 bg-brand-50 border border-brand-200 rounded-xl px-4 py-4 hover:bg-brand-100 transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+            >
+              <div className="w-10 h-10 rounded-full bg-brand-500 flex items-center justify-center shrink-0">
+                <LayoutDashboard size={20} strokeWidth={1.75} className="text-surface" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-semibold text-brand-700">Acessar painel da loja</p>
+                <p className="text-xs text-brand-600 mt-0.5">Você é operador desta loja</p>
+              </div>
+              <ChevronRight size={16} strokeWidth={2} className="text-brand-500 shrink-0" />
+            </Link>
+          )}
 
           {/* Modal alterar senha */}
           {editandoSenha && (
@@ -1212,6 +2081,20 @@ export default function ContaCliente() {
             <SecaoLoja loja={loja} onAtualizar={setLoja} />
           )}
 
+          {/* Aba: Operadores */}
+          {abaAtiva === 'operadores' && loja && cliente && (
+            <PlanGate feature="multiplos_operadores">
+              <SecaoOperadores lojaId={loja.id} donoId={cliente.id} />
+            </PlanGate>
+          )}
+
+          {/* Aba: Integrações */}
+          {abaAtiva === 'integracoes' && loja && (
+            <PlanGate feature="integracoes">
+              <SecaoIntegracoes lojaId={loja.id} />
+            </PlanGate>
+          )}
+
         </PageContainer>
       </main>
 
@@ -1226,5 +2109,13 @@ export default function ContaCliente() {
         />
       )}
     </div>
+  )
+}
+
+export default function ContaPage() {
+  return (
+    <PlanProvider>
+      <ContaCliente />
+    </PlanProvider>
   )
 }

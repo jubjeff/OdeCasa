@@ -14,24 +14,38 @@ function ConfirmadoInner() {
 
   useEffect(() => {
     let ativo = true
+    let unsub: (() => void) | null = null
+    let timer: ReturnType<typeof setTimeout> | null = null
 
-    // supabase-js detecta a sessão na URL automaticamente após a confirmação;
-    // assim que ela existir, seguimos para a loja/checkout de origem.
-    const { data: sub } = supabase.auth.onAuthStateChange((_evento, session) => {
-      if (session && ativo) router.replace(redirect)
-    })
+    async function confirmar() {
+      // PKCE: troca o authorization code por sessão explicitamente
+      const code = new URLSearchParams(window.location.search).get('code')
+      if (code) {
+        await supabase.auth.exchangeCodeForSession(code)
+      }
 
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session && ativo) router.replace(redirect)
-    })
+      if (!ativo) return
 
-    // Se em alguns segundos a sessão não vier, oferece entrar manualmente.
-    const timer = setTimeout(() => { if (ativo) setFalhou(true) }, 6000)
+      // Sessão já disponível (implicit flow ou code já trocado)
+      const { data: { session } } = await supabase.auth.getSession()
+      if (session && ativo) { router.replace(redirect); return }
+
+      // Listener para sessão que pode surgir após o exchange async
+      const { data: sub } = supabase.auth.onAuthStateChange((_evento, sess) => {
+        if (sess && ativo) router.replace(redirect)
+      })
+      unsub = () => sub.subscription.unsubscribe()
+
+      // Fallback: após 6s mostra opção de entrar manualmente
+      timer = setTimeout(() => { if (ativo) setFalhou(true) }, 6000)
+    }
+
+    confirmar()
 
     return () => {
       ativo = false
-      sub.subscription.unsubscribe()
-      clearTimeout(timer)
+      unsub?.()
+      if (timer) clearTimeout(timer)
     }
   }, [router, redirect])
 
@@ -45,7 +59,11 @@ function ConfirmadoInner() {
               Sua conta pode já estar confirmada. Faça login para continuar.
             </p>
             <Link
-              href={`/entrar?redirect=${encodeURIComponent(redirect)}`}
+              href={
+                redirect.startsWith('/painel') || redirect.startsWith('/admin')
+                  ? `/login?redirect=${encodeURIComponent(redirect)}`
+                  : `/entrar?redirect=${encodeURIComponent(redirect)}`
+              }
               className="inline-flex items-center justify-center min-h-[48px] px-5 rounded-md font-semibold text-sm bg-brand-500 text-surface hover:bg-brand-600 transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
             >
               Entrar

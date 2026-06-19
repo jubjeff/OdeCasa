@@ -1,11 +1,11 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import Image from 'next/image'
 import Link from 'next/link'
 import { Search, MapPin, Truck, Store, SearchX, ChevronDown } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { NotificationBell } from '@/components/ui/NotificationBell'
+import { ThemeToggle } from '@/components/ui/ThemeToggle'
 
 /* ── Tipos ───────────────────────────────────────── */
 
@@ -165,14 +165,12 @@ export default function HubLojas() {
       <header className="sticky top-0 z-30 bg-surface border-b border-line">
         <div className="max-w-5xl mx-auto px-4">
           <div className="h-14 flex items-center gap-3">
-            <Image
-              src="/odecasa-logo.png"
-              alt="ÔdeCasa Delivery"
-              width={40}
-              height={40}
-              className="block shrink-0"
-              priority
-            />
+            <Link href="/" aria-label="ÔdeCasa Delivery — início" className="flex flex-col leading-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 rounded">
+              <span className="text-lg font-bold">
+                <span className="text-ink">Ôde</span><span className="text-brand-500">Casa</span>
+              </span>
+              <span className="text-[11px] font-medium text-ink-mute tracking-wide">delivery</span>
+            </Link>
             <button
               type="button"
               className="flex items-center gap-1 text-sm text-ink-soft hover:text-ink transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 rounded px-1"
@@ -183,8 +181,9 @@ export default function HubLojas() {
               <ChevronDown size={14} strokeWidth={1.75} className="text-ink-mute" />
             </button>
 
-            {/* Sininho de notificações (aparece só para cliente logado) */}
-            <div className="ml-auto">
+            {/* Ações à direita */}
+            <div className="ml-auto flex items-center gap-1">
+              <ThemeToggle />
               <NotificationBell />
             </div>
           </div>

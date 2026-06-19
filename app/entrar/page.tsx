@@ -48,7 +48,8 @@ function EntrarInner() {
           <span className="text-sm font-medium text-ink-mute tracking-wide mt-1">delivery</span>
         </div>
         <Card bodyClassName="p-8">
-          <h1 className="text-[22px] font-bold text-ink mb-6">Entrar</h1>
+          <h1 className="text-[22px] font-bold text-ink mb-1">Entrar</h1>
+          <p className="text-sm text-ink-mute mb-6">Área do cliente</p>
 
           <form onSubmit={handleSubmit} className="flex flex-col gap-4">
             <Input
@@ -83,6 +84,12 @@ function EntrarInner() {
             Não tem conta?{' '}
             <Link href={linkCriar} className="text-brand-500 font-medium hover:underline">
               Criar conta
+            </Link>
+          </p>
+          <p className="mt-3 text-center text-sm text-ink-mute">
+            É lojista?{' '}
+            <Link href="/login" className="text-brand-500 font-medium hover:underline">
+              Acessar painel
             </Link>
           </p>
         </Card>

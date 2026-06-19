@@ -1,9 +1,9 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
-import { ImageIcon, Pencil, Trash2, Plus } from 'lucide-react'
+import { ImageIcon, Pencil, Trash2, Plus, X } from 'lucide-react'
+import { useRole } from '@/hooks/useRole'
 import { supabase } from '@/lib/supabase'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
@@ -125,11 +125,12 @@ interface ProdutoFormProps {
   loja: Loja
   categorias: Categoria[]
   produto: Produto | null
+  formId: string
   onSalvo: () => void
-  onCancelar: () => void
+  onSalvandoChange: (v: boolean) => void
 }
 
-function ProdutoForm({ loja, categorias, produto, onSalvo, onCancelar }: ProdutoFormProps) {
+function ProdutoForm({ loja, categorias, produto, formId, onSalvo, onSalvandoChange }: ProdutoFormProps) {
   const [form, setForm]             = useState<FormValues>(produto ? produtoParaForm(produto) : FORM_VAZIO)
   const [salvando, setSalvando]     = useState(false)
   const [erro, setErro]             = useState<string | null>(null)
@@ -152,9 +153,14 @@ function ProdutoForm({ loja, categorias, produto, onSalvo, onCancelar }: Produto
     setForm(prev => ({ ...prev, [campo]: valor }))
   }
 
+  function mudarSalvando(v: boolean) {
+    setSalvando(v)
+    onSalvandoChange(v)
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    setSalvando(true)
+    mudarSalvando(true)
     setErro(null)
     setErroUpload(null)
 
@@ -198,7 +204,7 @@ function ProdutoForm({ loja, categorias, produto, onSalvo, onCancelar }: Produto
       ? await supabase.from('produtos').update(payload).eq('id', produto.id)
       : await supabase.from('produtos').insert({ ...payload, loja_id: loja.id })
 
-    setSalvando(false)
+    mudarSalvando(false)
 
     if (error) {
       setErro(error.message)
@@ -211,12 +217,7 @@ function ProdutoForm({ loja, categorias, produto, onSalvo, onCancelar }: Produto
   }
 
   return (
-    <Card bodyClassName="p-6">
-      <h2 className="text-[18px] font-semibold text-ink mb-5">
-        {produto ? 'Editar produto' : 'Novo produto'}
-      </h2>
-
-      <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+    <form id={formId} onSubmit={handleSubmit} className="flex flex-col gap-4">
 
         {/* ── Campo de foto ──────────────────────── */}
         <div className="flex flex-col gap-1.5">
@@ -417,16 +418,122 @@ function ProdutoForm({ loja, categorias, produto, onSalvo, onCancelar }: Produto
 
         {erro && <p className="text-sm text-danger">{erro}</p>}
 
-        <div className="flex gap-3 mt-1">
-          <Button type="submit" disabled={salvando} className="flex-1">
+      </form>
+  )
+}
+
+/* ── Modal / drawer de produto ───────────────────── */
+
+interface ProdutoModalProps {
+  open: boolean
+  loja: Loja
+  categorias: Categoria[]
+  produto: Produto | null
+  onSalvo: () => void
+  onFechar: () => void
+}
+
+const FORM_ID = 'produto-form'
+
+function ProdutoModal({ open, loja, categorias, produto, onSalvo, onFechar }: ProdutoModalProps) {
+  const [visivel, setVisivel]   = useState(false)
+  const [salvando, setSalvando] = useState(false)
+  const overlayRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (open) {
+      setSalvando(false)
+      requestAnimationFrame(() => setVisivel(true))
+      document.body.style.overflow = 'hidden'
+    } else {
+      setVisivel(false)
+      document.body.style.overflow = ''
+    }
+    return () => { document.body.style.overflow = '' }
+  }, [open])
+
+  useEffect(() => {
+    if (!open) return
+    function onKey(e: KeyboardEvent) { if (e.key === 'Escape') onFechar() }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [open, onFechar])
+
+  if (!open && !visivel) return null
+
+  return (
+    <div
+      ref={overlayRef}
+      className={[
+        'fixed inset-0 z-50 flex items-end md:items-stretch md:justify-end',
+        'transition-colors duration-200',
+        visivel ? 'bg-ink/40' : 'bg-transparent',
+      ].join(' ')}
+      onClick={e => { if (e.target === overlayRef.current) onFechar() }}
+      role="dialog"
+      aria-modal="true"
+      aria-label={produto ? 'Editar produto' : 'Novo produto'}
+    >
+      {/* Painel deslizante */}
+      <div
+        className={[
+          'relative bg-surface flex flex-col',
+          'w-full md:w-[500px] md:h-full',
+          'rounded-t-2xl md:rounded-none md:rounded-l-2xl',
+          'shadow-lg max-h-[92dvh] md:max-h-full',
+          'transition-transform duration-200 ease-out',
+          visivel ? 'translate-y-0 md:translate-x-0' : 'translate-y-full md:translate-x-full',
+        ].join(' ')}
+        onClick={e => e.stopPropagation()}
+      >
+        {/* Cabeçalho fixo */}
+        <div className="flex items-center justify-between px-5 pt-5 pb-4 border-b border-line shrink-0">
+          <h2 className="text-lg font-semibold text-ink">
+            {produto ? 'Editar produto' : 'Novo produto'}
+          </h2>
+          <button
+            onClick={onFechar}
+            aria-label="Fechar"
+            className="w-9 h-9 flex items-center justify-center rounded-full hover:bg-brand-50 transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 shrink-0"
+          >
+            <X size={18} strokeWidth={1.75} className="text-ink-soft" />
+          </button>
+        </div>
+
+        {/* Conteúdo com scroll */}
+        <div className="flex-1 overflow-y-auto overscroll-contain px-5 py-5">
+          <ProdutoForm
+            loja={loja}
+            categorias={categorias}
+            produto={produto}
+            formId={FORM_ID}
+            onSalvo={onSalvo}
+            onSalvandoChange={setSalvando}
+          />
+        </div>
+
+        {/* Rodapé fixo com botões sempre visíveis */}
+        <div className="shrink-0 px-5 py-4 border-t border-line flex gap-3">
+          <Button
+            type="submit"
+            form={FORM_ID}
+            disabled={salvando}
+            className="flex-1"
+          >
             {salvando ? 'Salvando…' : 'Salvar produto'}
           </Button>
-          <Button type="button" variant="secondary" onClick={onCancelar}>
+          <Button
+            type="button"
+            variant="secondary"
+            onClick={onFechar}
+            disabled={salvando}
+            className="shrink-0"
+          >
             Cancelar
           </Button>
         </div>
-      </form>
-    </Card>
+      </div>
+    </div>
   )
 }
 
@@ -538,7 +645,7 @@ function ProdutoCard({ produto, categoriaNome, onEditar, onExcluir, onToggleDisp
 /* ── Página principal ────────────────────────────── */
 
 export default function Produtos() {
-  const router = useRouter()
+  const { lojaId } = useRole()
 
   const [loja, setLoja]               = useState<Loja | null | undefined>(undefined)
   const [categorias, setCategorias]   = useState<Categoria[]>([])
@@ -552,32 +659,17 @@ export default function Produtos() {
   /* ── Inicialização ──────────────────────────── */
 
   useEffect(() => {
+    if (!lojaId) return
     async function init() {
-      const { data: { session } } = await supabase.auth.getSession()
-      if (!session) { router.push('/login'); return }
-
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) { router.push('/login'); return }
-
-      const { data } = await supabase
-        .from('lojas')
-        .select('id, nome')
-        .eq('dono_id', user.id)
-        .maybeSingle()
-
+      const { data } = await supabase.from('lojas').select('id, nome').eq('id', lojaId).single()
       const lojaEncontrada = data ? (data as Loja) : null
       setLoja(lojaEncontrada)
-
       if (lojaEncontrada) {
-        await Promise.all([
-          buscarCategorias(lojaEncontrada.id),
-          buscarProdutos(lojaEncontrada.id),
-        ])
+        await Promise.all([buscarCategorias(lojaEncontrada.id), buscarProdutos(lojaEncontrada.id)])
       }
     }
-
     init()
-  }, [router])
+  }, [lojaId])
 
   /* ── Buscas ─────────────────────────────────── */
 
@@ -705,104 +797,102 @@ export default function Produtos() {
 
   return (
     <>
-    <main className="py-8">
-      <PageContainer size={formAberto ? 'narrow' : 'wide'} className="flex flex-col gap-6">
+      <main className="py-8">
+        <PageContainer size="wide" className="flex flex-col gap-6">
 
-        {formAberto ? (
-          <ProdutoForm
-            loja={loja}
-            categorias={categorias}
-            produto={produtoEditando}
-            onSalvo={handleSalvo}
-            onCancelar={fecharForm}
-          />
-        ) : (
-          <>
-            {/* Topo: título + Novo produto */}
-            <SectionTitle
-              count={produtosFiltrados.length}
-              action={
-                <Button onClick={abrirNovoProduto} className="!min-h-[40px] text-sm px-4">
-                  <Plus size={16} strokeWidth={2} />
-                  Novo produto
-                </Button>
-              }
-            >
-              Produtos
-            </SectionTitle>
+          {/* Topo: título + Novo produto */}
+          <SectionTitle
+            count={produtosFiltrados.length}
+            action={
+              <Button onClick={abrirNovoProduto} className="!min-h-[40px] text-sm px-4">
+                <Plus size={16} strokeWidth={2} />
+                Novo produto
+              </Button>
+            }
+          >
+            Produtos
+          </SectionTitle>
 
-            {/* Filtro por categoria */}
-            {(catsComProdutos.length > 0 || temSemCategoria) && (
-              <div className="flex gap-2 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden -mt-2">
+          {/* Filtro por categoria */}
+          {(catsComProdutos.length > 0 || temSemCategoria) && (
+            <div className="flex gap-2 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden -mt-2">
+              <Chip
+                selected={filtroCategoria === null}
+                variant="solid"
+                onClick={() => setFiltroCategoria(null)}
+              >
+                Todos
+              </Chip>
+              {catsComProdutos.map(c => (
                 <Chip
-                  selected={filtroCategoria === null}
+                  key={c.id}
+                  selected={filtroCategoria === c.id}
                   variant="solid"
-                  onClick={() => setFiltroCategoria(null)}
+                  onClick={() => setFiltroCategoria(c.id)}
                 >
-                  Todos
+                  {c.nome}
                 </Chip>
-                {catsComProdutos.map(c => (
-                  <Chip
-                    key={c.id}
-                    selected={filtroCategoria === c.id}
-                    variant="solid"
-                    onClick={() => setFiltroCategoria(c.id)}
-                  >
-                    {c.nome}
-                  </Chip>
-                ))}
-                {temSemCategoria && (
-                  <Chip
-                    selected={filtroCategoria === 'sem-categoria'}
-                    variant="solid"
-                    onClick={() => setFiltroCategoria('sem-categoria')}
-                  >
-                    Sem categoria
-                  </Chip>
-                )}
-              </div>
-            )}
+              ))}
+              {temSemCategoria && (
+                <Chip
+                  selected={filtroCategoria === 'sem-categoria'}
+                  variant="solid"
+                  onClick={() => setFiltroCategoria('sem-categoria')}
+                >
+                  Sem categoria
+                </Chip>
+              )}
+            </div>
+          )}
 
-            {/* Lista */}
-            {produtos.length === 0 ? (
-              <Card bodyClassName="p-10 text-center">
-                <ImageIcon size={32} strokeWidth={1.25} className="text-ink-mute mx-auto mb-3" />
-                <p className="text-sm font-semibold text-ink">Nenhum produto cadastrado</p>
-                <p className="text-xs text-ink-mute mt-1">Toque em "Novo produto" para começar.</p>
-              </Card>
-            ) : produtosFiltrados.length === 0 ? (
-              <Card bodyClassName="p-10 text-center">
-                <ImageIcon size={32} strokeWidth={1.25} className="text-ink-mute mx-auto mb-3" />
-                <p className="text-sm font-semibold text-ink">Nenhum produto nesta categoria</p>
-              </Card>
-            ) : (
-              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-4">
-                {produtosFiltrados.map(p => (
-                  <ProdutoCard
-                    key={p.id}
-                    produto={p}
-                    categoriaNome={p.categoria_id ? categoriaMap[p.categoria_id] : undefined}
-                    onEditar={() => abrirEdicao(p)}
-                    onExcluir={() => excluir(p)}
-                    onToggleDisponivel={() => toggleDisponivel(p)}
-                  />
-                ))}
-              </div>
-            )}
-          </>
-        )}
+          {/* Lista */}
+          {produtos.length === 0 ? (
+            <Card bodyClassName="p-10 text-center">
+              <ImageIcon size={32} strokeWidth={1.25} className="text-ink-mute mx-auto mb-3" />
+              <p className="text-sm font-semibold text-ink">Nenhum produto cadastrado</p>
+              <p className="text-xs text-ink-mute mt-1">Toque em "Novo produto" para começar.</p>
+            </Card>
+          ) : produtosFiltrados.length === 0 ? (
+            <Card bodyClassName="p-10 text-center">
+              <ImageIcon size={32} strokeWidth={1.25} className="text-ink-mute mx-auto mb-3" />
+              <p className="text-sm font-semibold text-ink">Nenhum produto nesta categoria</p>
+            </Card>
+          ) : (
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-4">
+              {produtosFiltrados.map(p => (
+                <ProdutoCard
+                  key={p.id}
+                  produto={p}
+                  categoriaNome={p.categoria_id ? categoriaMap[p.categoria_id] : undefined}
+                  onEditar={() => abrirEdicao(p)}
+                  onExcluir={() => excluir(p)}
+                  onToggleDisponivel={() => toggleDisponivel(p)}
+                />
+              ))}
+            </div>
+          )}
 
-      </PageContainer>
-    </main>
+        </PageContainer>
+      </main>
 
-    {/* Diálogo de confirmação de exclusão */}
-    {dialogo && (
-      <ConfirmDialog
-        mensagem={dialogo.mensagem}
-        onConfirmar={dialogo.onConfirmar}
-        onCancelar={() => setDialogo(null)}
+      {/* Modal de criação / edição de produto */}
+      <ProdutoModal
+        open={formAberto}
+        loja={loja}
+        categorias={categorias}
+        produto={produtoEditando}
+        onSalvo={handleSalvo}
+        onFechar={fecharForm}
       />
-    )}
-  </>
+
+      {/* Diálogo de confirmação de exclusão */}
+      {dialogo && (
+        <ConfirmDialog
+          mensagem={dialogo.mensagem}
+          onConfirmar={dialogo.onConfirmar}
+          onCancelar={() => setDialogo(null)}
+        />
+      )}
+    </>
   )
 }

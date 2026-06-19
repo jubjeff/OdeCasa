@@ -14,6 +14,7 @@ export const metadata: Metadata = {
   title: "ÔdeCasa",
   description: "Delivery multi-loja",
   manifest: "/manifest.json",
+  icons: { icon: "/icon.svg", shortcut: "/icon.svg", apple: "/icon.svg" },
   appleWebApp: { capable: true, title: "ÔdeCasa", statusBarStyle: "default" },
   other: { "theme-color": "#0E9F5E", "mobile-web-app-capable": "yes" },
 };
@@ -35,10 +36,12 @@ export default function RootLayout({
         <Providers>
           {children}
           <Toaster
-            position="top-center"
+            position="top-right"
             richColors
             closeButton
-            duration={3000}
+            duration={4000}
+            gap={8}
+            offset={16}
             toastOptions={{ style: { fontFamily: 'var(--font-plus-jakarta-sans)' } }}
           />
         </Providers>

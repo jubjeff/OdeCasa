@@ -27,7 +27,7 @@ export default function Cadastro() {
       options: {
         data: { nome },
         // Após confirmar o e-mail, loga e leva o dono direto ao painel
-        emailRedirectTo: `${window.location.origin}/auth/confirmado?redirect=${encodeURIComponent('/painel')}`,
+        emailRedirectTo: `${process.env.NEXT_PUBLIC_SITE_URL ?? window.location.origin}/auth/confirmado?redirect=${encodeURIComponent('/painel')}`,
       },
     })
 

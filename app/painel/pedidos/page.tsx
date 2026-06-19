@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { RefreshCw, ChevronDown, ChevronUp, Phone, MapPin, Volume2, VolumeX, MessageCircle, ArrowRight, Ban, Star, ExternalLink } from 'lucide-react'
+import { useRole } from '@/hooks/useRole'
 import { supabase } from '@/lib/supabase'
 import { Button } from '@/components/ui/Button'
 import { StatusBadge, type OrderStatus } from '@/components/ui/StatusBadge'
@@ -244,6 +245,7 @@ interface CardPedidoProps {
   whatsappRealcado: boolean
   agora: number
   avaliacao?: { nota: number; comentario: string | null }
+  podeCancelarPorPapel: boolean
   onToggle: () => void
   onAvancar: (novoStatus: OrderStatus) => void
   onIniciarCancelar: () => void
@@ -251,12 +253,13 @@ interface CardPedidoProps {
 
 function CardPedido({
   pedido, itens, loadingItens, expandido, atualizandoStatus, novo,
-  nomeLoja, whatsappRealcado, agora, avaliacao,
+  nomeLoja, whatsappRealcado, agora, avaliacao, podeCancelarPorPapel,
   onToggle, onAvancar, onIniciarCancelar,
 }: CardPedidoProps) {
   const proximo = PROXIMO[pedido.status]
   const podeAvancar = !!proximo
-  const podeCancelar = pedido.status !== 'cancelado' && pedido.status !== 'entregue'
+  // Caixa não pode cancelar; atendente+ sim
+  const podeCancelar = podeCancelarPorPapel && pedido.status !== 'cancelado' && pedido.status !== 'entregue'
   const temTelefone = telefoneValido(pedido.telefone_cliente)
   const waLink = temTelefone ? montarLinkWhatsApp(pedido, nomeLoja) : undefined
 
@@ -476,6 +479,7 @@ interface KanbanColunaProps {
   whatsappRealcado: Set<string>
   agora: number
   avaliacoesPorPedido: Record<string, { nota: number; comentario: string | null }>
+  podeCancelarPorPapel: boolean
   onToggle: (id: string) => void
   onAvancar: (id: string, status: OrderStatus) => void
   onIniciarCancelar: (id: string) => void
@@ -485,6 +489,7 @@ function KanbanColuna({
   status, titulo, corDot, pedidos,
   expandido, itensPorPedido, loadingItens, atualizandoStatus, novosIds,
   nomeLoja, whatsappRealcado, agora, avaliacoesPorPedido,
+  podeCancelarPorPapel,
   onToggle, onAvancar, onIniciarCancelar,
 }: KanbanColunaProps) {
   const { setNodeRef, isOver } = useDroppable({ id: status })
@@ -524,6 +529,7 @@ function KanbanColuna({
                 whatsappRealcado={whatsappRealcado.has(p.id)}
                 agora={agora}
                 avaliacao={avaliacoesPorPedido[p.id]}
+                podeCancelarPorPapel={podeCancelarPorPapel}
                 onToggle={() => onToggle(p.id)}
                 onAvancar={status => onAvancar(p.id, status)}
                 onIniciarCancelar={() => onIniciarCancelar(p.id)}
@@ -540,8 +546,8 @@ function KanbanColuna({
 
 export default function PainelPedidos() {
   const router = useRouter()
+  const { lojaId, isLoading: roleLoading, hasRole } = useRole()
 
-  const [lojaId, setLojaId]     = useState<string | null | undefined>(undefined)
   const [nomeLoja, setNomeLoja]  = useState<string>('')
   const [pedidos, setPedidos]    = useState<Pedido[]>([])
   const [carregando, setCarregando]   = useState(true)
@@ -684,29 +690,15 @@ export default function PainelPedidos() {
   }, [])
 
   useEffect(() => {
-    async function init() {
-      const { data: { session } } = await supabase.auth.getSession()
-      if (!session) { router.push('/login'); return }
+    if (!lojaId) return
+    supabase.from('lojas').select('nome').eq('id', lojaId).single()
+      .then(({ data }) => { if (data) setNomeLoja((data as { nome: string }).nome ?? '') })
+  }, [lojaId])
 
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) { router.push('/login'); return }
-
-      const { data: lojaData } = await supabase
-        .from('lojas')
-        .select('id, nome')
-        .eq('dono_id', user.id)
-        .maybeSingle()
-
-      if (!lojaData) { setLojaId(null); setCarregando(false); return }
-
-      setLojaId(lojaData.id)
-      setNomeLoja(lojaData.nome ?? '')
-      await carregarPedidos(lojaData.id, 'hoje')
-      setCarregando(false)
-    }
-
-    init()
-  }, [router, carregarPedidos])
+  useEffect(() => {
+    if (!lojaId) return
+    carregarPedidos(lojaId, 'hoje').then(() => setCarregando(false))
+  }, [lojaId, carregarPedidos])
 
   /* Recarrega quando o filtro de data muda */
   useEffect(() => {
@@ -823,6 +815,13 @@ export default function PainelPedidos() {
         setWhatsappRealcado(prev => { const s = new Set(prev); s.delete(pedidoId); return s })
       }, 5000)
       toast.success(mensagemSucesso ?? `Pedido marcado como "${LABEL_STATUS[novoStatus]}"`)
+
+      const evento = novoStatus === 'cancelado' ? 'pedido.cancelado' : 'pedido.status_alterado'
+      fetch('/api/webhook/disparar', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ loja_id: lojaId, evento, pedido_id: pedidoId }),
+      }).catch(() => {})
     }
     setAtualizandoStatus(null)
   }
@@ -841,7 +840,14 @@ export default function PainelPedidos() {
     const origem = active.data.current?.status as OrderStatus | undefined
     const destino = over.id as OrderStatus
     if (!destino || destino === origem) return
-    if (destino === 'cancelado') { setConfirmCancelar(pedidoId); return }
+    if (destino === 'cancelado') {
+      if (!hasRole('atendente')) {
+        toast.error('Apenas atendentes ou superiores podem cancelar pedidos.')
+        return
+      }
+      setConfirmCancelar(pedidoId)
+      return
+    }
     handleAvancarStatus(pedidoId, destino, `Pedido #${idCurto(pedidoId)} movido para "${LABEL_STATUS[destino]}"`)
   }
 
@@ -855,7 +861,7 @@ export default function PainelPedidos() {
 
   /* ── Estados de carregamento / erro ──────────────── */
 
-  if (lojaId === undefined || carregando) {
+  if (roleLoading || carregando) {
     return (
       <div className="flex gap-4 px-4 py-5 overflow-x-auto">
         {Array.from({ length: 4 }).map((_, c) => (
@@ -874,7 +880,7 @@ export default function PainelPedidos() {
     )
   }
 
-  if (lojaId === null) {
+  if (!roleLoading && !lojaId) {
     return (
       <main className="min-h-screen bg-bg flex items-center justify-center px-4">
         <div className="text-center max-w-xs">
@@ -980,6 +986,7 @@ export default function PainelPedidos() {
                 whatsappRealcado={whatsappRealcado}
                 agora={agora}
                 avaliacoesPorPedido={avaliacoesPorPedido}
+                podeCancelarPorPapel={!roleLoading && hasRole('atendente')}
                 onToggle={handleToggle}
                 onAvancar={handleAvancarStatus}
                 onIniciarCancelar={id => setConfirmCancelar(id)}
