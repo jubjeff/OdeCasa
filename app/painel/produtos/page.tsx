@@ -645,7 +645,7 @@ function ProdutoCard({ produto, categoriaNome, onEditar, onExcluir, onToggleDisp
 /* ── Página principal ────────────────────────────── */
 
 export default function Produtos() {
-  const { lojaId } = useRole()
+  const { lojaId, isLoading: roleLoading } = useRole()
 
   const [loja, setLoja]               = useState<Loja | null | undefined>(undefined)
   const [categorias, setCategorias]   = useState<Categoria[]>([])
@@ -659,7 +659,11 @@ export default function Produtos() {
   /* ── Inicialização ──────────────────────────── */
 
   useEffect(() => {
-    if (!lojaId) return
+    if (roleLoading) return
+    if (!lojaId) {
+      setLoja(null)
+      return
+    }
     async function init() {
       const { data } = await supabase.from('lojas').select('id, nome').eq('id', lojaId).single()
       const lojaEncontrada = data ? (data as Loja) : null
@@ -669,7 +673,7 @@ export default function Produtos() {
       }
     }
     init()
-  }, [lojaId])
+  }, [lojaId, roleLoading])
 
   /* ── Buscas ─────────────────────────────────── */
 

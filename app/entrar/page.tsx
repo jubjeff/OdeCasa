@@ -80,7 +80,13 @@ function EntrarInner() {
             </Button>
           </form>
 
-          <p className="mt-5 text-center text-sm text-ink-soft">
+          <p className="mt-4 text-center text-sm">
+            <Link href="/esqueci-senha" className="text-ink-mute hover:text-brand-500 transition-colors duration-150">
+              Esqueci minha senha
+            </Link>
+          </p>
+
+          <p className="mt-3 text-center text-sm text-ink-soft">
             Não tem conta?{' '}
             <Link href={linkCriar} className="text-brand-500 font-medium hover:underline">
               Criar conta

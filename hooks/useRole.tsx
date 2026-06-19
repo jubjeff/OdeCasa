@@ -19,6 +19,7 @@ interface RoleContextValue {
   lojaId: string | null
   isLoading: boolean
   hasRole: (min: Papel) => boolean
+  refetch: () => void
 }
 
 /* ── Context ──────────────────────────────────────── */
@@ -29,12 +30,18 @@ const RoleContext = createContext<RoleContextValue | null>(null)
 
 export function RoleProvider({ children }: { children: ReactNode }) {
   const router = useRouter()
-  const [papel, setPapel]     = useState<Papel | null>(null)
-  const [lojaId, setLojaId]   = useState<string | null>(null)
+  const [papel, setPapel]         = useState<Papel | null>(null)
+  const [lojaId, setLojaId]       = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(true)
+  const [tick, setTick]           = useState(0)
+
+  // Força nova busca — chamar após criar ou mudar de loja
+  function refetch() { setTick(t => t + 1) }
 
   useEffect(() => {
     let ativo = true
+    setIsLoading(true)
+
     async function carregar() {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) { router.push('/login'); return }
@@ -62,7 +69,7 @@ export function RoleProvider({ children }: { children: ReactNode }) {
       // Dono recém-cadastrado ainda não tem loja — permite entrar no painel
       // para criar a primeira loja (a página trata papel/lojaId nulos)
       if (!resolvedLojaId) {
-        if (ativo) setIsLoading(false)
+        if (ativo) { setLojaId(null); setPapel(null); setIsLoading(false) }
         return
       }
 
@@ -80,7 +87,7 @@ export function RoleProvider({ children }: { children: ReactNode }) {
     }
     carregar()
     return () => { ativo = false }
-  }, [router])
+  }, [router, tick])
 
   function hasRole(min: Papel): boolean {
     if (!papel) return false
@@ -88,7 +95,7 @@ export function RoleProvider({ children }: { children: ReactNode }) {
   }
 
   return (
-    <RoleContext.Provider value={{ papel, lojaId, isLoading, hasRole }}>
+    <RoleContext.Provider value={{ papel, lojaId, isLoading, hasRole, refetch }}>
       {children}
     </RoleContext.Provider>
   )

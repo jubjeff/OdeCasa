@@ -46,6 +46,7 @@ interface PlanContextValue {
   hasFeature: (key: string) => boolean
   isLimitReached: () => boolean
   isNearLimit: () => boolean
+  refetch: () => void
 }
 
 /* ── Fallback (plano grátis sem assinatura) ─────────────── */
@@ -85,9 +86,14 @@ export function PlanProvider({ children }: { children: ReactNode }) {
   const [assinatura, setAssinatura] = useState<Assinatura>(ASSINATURA_DEFAULT)
   const [usoMes, setUsoMes]         = useState<UsoMes>(buildUsoMes(0, 30))
   const [isLoading, setIsLoading]   = useState(true)
+  const [tick, setTick]             = useState(0)
+
+  // Força nova busca — chamar após criar loja ou mudar de plano
+  function refetch() { setTick(t => t + 1) }
 
   useEffect(() => {
     let ativo = true
+    setIsLoading(true)
 
     async function carregar() {
       const { data: { user } } = await supabase.auth.getUser()
@@ -167,7 +173,7 @@ export function PlanProvider({ children }: { children: ReactNode }) {
 
     carregar()
     return () => { ativo = false }
-  }, [])
+  }, [tick])
 
   function hasFeature(key: string): boolean {
     return plano.features[key] === true
@@ -182,7 +188,7 @@ export function PlanProvider({ children }: { children: ReactNode }) {
   }
 
   return (
-    <PlanContext.Provider value={{ plano, assinatura, usoMes, isLoading, hasFeature, isLimitReached, isNearLimit }}>
+    <PlanContext.Provider value={{ plano, assinatura, usoMes, isLoading, hasFeature, isLimitReached, isNearLimit, refetch }}>
       {children}
     </PlanContext.Provider>
   )

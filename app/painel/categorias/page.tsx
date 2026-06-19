@@ -32,7 +32,7 @@ interface Categoria {
 /* ── Página ─────────────────────────────────────────── */
 
 export default function Categorias() {
-  const { lojaId } = useRole()
+  const { lojaId, isLoading: roleLoading } = useRole()
 
   const [loja, setLoja]             = useState<Loja | null | undefined>(undefined)
   const [categorias, setCategorias] = useState<Categoria[]>([])
@@ -54,7 +54,12 @@ export default function Categorias() {
   /* ── Inicialização ──────────────────────────────── */
 
   useEffect(() => {
-    if (!lojaId) return
+    if (roleLoading) return
+    if (!lojaId) {
+      // Role já carregou e não há loja — resolve explicitamente (evita skeleton eterno)
+      setLoja(null)
+      return
+    }
     async function init() {
       const { data } = await supabase.from('lojas').select('id, nome').eq('id', lojaId).single()
       const lojaEncontrada = data ? (data as Loja) : null
@@ -64,7 +69,7 @@ export default function Categorias() {
       }
     }
     init()
-  }, [lojaId])
+  }, [lojaId, roleLoading])
 
   /* ── Helpers ────────────────────────────────────── */
 

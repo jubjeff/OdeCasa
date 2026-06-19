@@ -1302,7 +1302,8 @@ function LojaNoAr({ slug, origin }: { slug: string; origin: string }) {
 
 export default function Painel() {
   const router = useRouter()
-  const { lojaId: lojaIdFromRole, papel, isLoading: roleLoading } = useRole()
+  const { lojaId: lojaIdFromRole, papel, isLoading: roleLoading, refetch: refetchRole } = useRole()
+  const { refetch: refetchPlan } = usePlan()
 
   const [userId, setUserId]     = useState<string | null>(null)
   const [loja, setLoja]         = useState<Loja | null | undefined>(undefined)
@@ -1638,6 +1639,8 @@ export default function Painel() {
             loja={null}
             onSalvo={novaLoja => {
               setLoja(novaLoja)
+              refetchRole()
+              refetchPlan()
               toast.success('Loja criada!')
             }}
           />

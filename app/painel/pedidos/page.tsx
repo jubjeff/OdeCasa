@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { RefreshCw, ChevronDown, ChevronUp, Phone, MapPin, Volume2, VolumeX, MessageCircle, ArrowRight, Ban, Star, ExternalLink } from 'lucide-react'
+import { RefreshCw, ChevronDown, ChevronUp, Phone, MapPin, Volume2, VolumeX, MessageCircle, ArrowRight, Ban, Star, ExternalLink, Store, Plus } from 'lucide-react'
 import { useRole } from '@/hooks/useRole'
 import { supabase } from '@/lib/supabase'
 import { Button } from '@/components/ui/Button'
@@ -17,6 +17,7 @@ import {
   MouseSensor, TouchSensor, useSensor, useSensors, closestCorners,
   type DragEndEvent,
 } from '@dnd-kit/core'
+import { ModalPedidoManual } from '@/components/painel/ModalPedidoManual'
 
 /* ── Tipos ───────────────────────────────────────── */
 
@@ -34,6 +35,7 @@ interface Pedido {
   total: number
   observacoes: string | null
   criado_em: string
+  origem: 'delivery' | 'manual'
 }
 
 interface ItemPedido {
@@ -45,7 +47,8 @@ interface ItemPedido {
   subtotal: number
 }
 
-type FiltroData = 'hoje' | 'ontem' | '7dias'
+type FiltroData   = 'hoje' | 'ontem' | '7dias'
+type FiltroOrigem = 'todos' | 'delivery' | 'manual'
 
 /* ── Constantes ──────────────────────────────────── */
 
@@ -89,9 +92,15 @@ const LABEL_WHATSAPP: Record<OrderStatus, string> = {
 }
 
 const CHIPS_FILTRO: { value: FiltroData; label: string }[] = [
-  { value: 'hoje',  label: 'Hoje'        },
-  { value: 'ontem', label: 'Ontem'       },
+  { value: 'hoje',  label: 'Hoje'           },
+  { value: 'ontem', label: 'Ontem'          },
   { value: '7dias', label: 'Últimos 7 dias' },
+]
+
+const CHIPS_ORIGEM: { value: FiltroOrigem; label: string }[] = [
+  { value: 'todos',    label: 'Todos'    },
+  { value: 'delivery', label: 'Delivery' },
+  { value: 'manual',   label: 'Balcão'  },
 ]
 
 /* ── Exibição somente-leitura de estrelas ────────── */
@@ -249,28 +258,33 @@ interface CardPedidoProps {
   onToggle: () => void
   onAvancar: (novoStatus: OrderStatus) => void
   onIniciarCancelar: () => void
+  origem: 'delivery' | 'manual'
 }
 
 function CardPedido({
   pedido, itens, loadingItens, expandido, atualizandoStatus, novo,
   nomeLoja, whatsappRealcado, agora, avaliacao, podeCancelarPorPapel,
-  onToggle, onAvancar, onIniciarCancelar,
+  onToggle, onAvancar, onIniciarCancelar, origem,
 }: CardPedidoProps) {
   const proximo = PROXIMO[pedido.status]
   const podeAvancar = !!proximo
-  // Caixa não pode cancelar; atendente+ sim
   const podeCancelar = podeCancelarPorPapel && pedido.status !== 'cancelado' && pedido.status !== 'entregue'
   const temTelefone = telefoneValido(pedido.telefone_cliente)
   const waLink = temTelefone ? montarLinkWhatsApp(pedido, nomeLoja) : undefined
+  const isManual = origem === 'manual'
 
-  const min = minutosDesde(pedido.criado_em, agora)
+  const min    = minutosDesde(pedido.criado_em, agora)
   const resumo = resumoItens(itens)
 
   return (
     <div className={[
       'rounded-xl overflow-hidden transition-shadow duration-200',
       corUrgencia(min, pedido.status),
-      novo ? 'bg-brand-100 shadow-md ring-2 ring-brand-300' : 'bg-surface shadow-sm hover:shadow-md',
+      novo
+        ? 'bg-brand-100 shadow-md ring-2 ring-brand-300'
+        : isManual
+          ? 'bg-bg shadow-sm hover:shadow-md'
+          : 'bg-surface shadow-sm hover:shadow-md',
     ].join(' ')}>
 
       <button
@@ -278,21 +292,40 @@ function CardPedido({
         aria-expanded={expandido}
         className="w-full text-left px-4 pt-3 pb-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-inset"
       >
+        {/* Linha 1: ícone balcão + número + status */}
         <div className="flex items-center justify-between gap-2">
-          <span className="text-sm font-bold text-ink">#{idCurto(pedido.id)}</span>
+          <div className="flex items-center gap-1.5">
+            {isManual && (
+              <Store size={13} strokeWidth={1.75} className="text-ink-mute shrink-0" />
+            )}
+            <span className="text-sm font-bold text-ink">#{idCurto(pedido.id)}</span>
+          </div>
           <StatusBadge status={pedido.status} />
         </div>
 
-        <p className="text-sm font-semibold text-ink mt-1.5 truncate">{pedido.nome_cliente}</p>
+        {/* Linha 2: nome + badge balcão */}
+        <div className="flex items-center gap-1.5 mt-1.5">
+          <p className="text-sm font-semibold text-ink truncate">{pedido.nome_cliente}</p>
+          {isManual && (
+            <span className="shrink-0 text-[10px] font-semibold text-ink-mute bg-line rounded-full px-1.5 py-0.5 leading-none">
+              Balcão
+            </span>
+          )}
+        </div>
 
         {resumo && (
           <p className="text-xs text-ink-soft mt-0.5 leading-snug line-clamp-2">{resumo}</p>
         )}
 
-        <p className="flex items-center gap-1 text-xs text-ink-mute mt-1">
-          <MapPin size={12} strokeWidth={1.75} className="shrink-0" />
-          <span className="truncate">{pedido.endereco_entrega}</span>
-        </p>
+        {/* Endereço: oculto para pedidos manuais sem entrega */}
+        {(!isManual || pedido.endereco_entrega) && (
+          <p className="flex items-center gap-1 text-xs text-ink-mute mt-1">
+            <MapPin size={12} strokeWidth={1.75} className="shrink-0" />
+            <span className="truncate">
+              {pedido.endereco_entrega || (isManual ? 'Balcão' : '—')}
+            </span>
+          </p>
+        )}
 
         <div className="flex items-center justify-between gap-2 mt-2">
           <span className="text-[15px] font-bold text-brand-700">{formatarReal(pedido.total)}</span>
@@ -313,26 +346,29 @@ function CardPedido({
           </AcaoIcone>
         )}
 
-        <a
-          href={waLink ?? '#'}
-          target={waLink ? '_blank' : undefined}
-          rel="noopener noreferrer"
-          title={temTelefone ? LABEL_WHATSAPP[pedido.status] : 'Cliente sem telefone'}
-          aria-label={temTelefone ? LABEL_WHATSAPP[pedido.status] : 'Cliente sem telefone'}
-          aria-disabled={!temTelefone}
-          tabIndex={temTelefone ? 0 : -1}
-          onClick={!temTelefone ? (e) => e.preventDefault() : undefined}
-          className={[
-            'w-9 h-9 flex items-center justify-center rounded-full transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500',
-            whatsappRealcado
-              ? 'bg-brand-500 text-surface ring-2 ring-brand-200'
-              : temTelefone
-                ? 'text-brand-700 hover:bg-brand-50'
-                : 'text-ink-mute opacity-50 pointer-events-none',
-          ].join(' ')}
-        >
-          <MessageCircle size={16} strokeWidth={1.75} />
-        </a>
+        {/* WhatsApp: sempre para delivery; para manual só se tiver telefone */}
+        {(!isManual || temTelefone) && (
+          <a
+            href={waLink ?? '#'}
+            target={waLink ? '_blank' : undefined}
+            rel="noopener noreferrer"
+            title={temTelefone ? LABEL_WHATSAPP[pedido.status] : 'Cliente sem telefone'}
+            aria-label={temTelefone ? LABEL_WHATSAPP[pedido.status] : 'Cliente sem telefone'}
+            aria-disabled={!temTelefone}
+            tabIndex={temTelefone ? 0 : -1}
+            onClick={!temTelefone ? (e) => e.preventDefault() : undefined}
+            className={[
+              'w-9 h-9 flex items-center justify-center rounded-full transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500',
+              whatsappRealcado
+                ? 'bg-brand-500 text-surface ring-2 ring-brand-200'
+                : temTelefone
+                  ? 'text-brand-700 hover:bg-brand-50'
+                  : 'text-ink-mute opacity-50 pointer-events-none',
+            ].join(' ')}
+          >
+            <MessageCircle size={16} strokeWidth={1.75} />
+          </a>
+        )}
 
         {podeCancelar && (
           <AcaoIcone
@@ -533,6 +569,7 @@ function KanbanColuna({
                 onToggle={() => onToggle(p.id)}
                 onAvancar={status => onAvancar(p.id, status)}
                 onIniciarCancelar={() => onIniciarCancelar(p.id)}
+                origem={p.origem ?? 'delivery'}
               />
             </CardArrastavel>
           ))
@@ -553,7 +590,9 @@ export default function PainelPedidos() {
   const [carregando, setCarregando]   = useState(true)
   const [atualizando, setAtualizando] = useState(false)
 
-  const [filtroData, setFiltroData] = useState<FiltroData>('hoje')
+  const [filtroData, setFiltroData]     = useState<FiltroData>('hoje')
+  const [filtroOrigem, setFiltroOrigem] = useState<FiltroOrigem>('todos')
+  const [modalAberto, setModalAberto]   = useState(false)
   /* ref para o intervalo de 30 s não capturar estado stale */
   const filtroDataRef = useRef<FiltroData>('hoje')
 
@@ -853,11 +892,19 @@ export default function PainelPedidos() {
 
   const pedidoArrastado = arrastandoId ? pedidos.find(p => p.id === arrastandoId) : null
 
+  /* Filtro de origem aplicado client-side sobre os pedidos já carregados */
+  const pedidosVisiveis = filtroOrigem === 'todos'
+    ? pedidos
+    : pedidos.filter(p => (p.origem ?? 'delivery') === filtroOrigem)
+
   /* Contador "pedidos hoje" — sempre calculado com base na data real de hoje */
   const inicioDeDiaHoje = inicioDoDia()
   const pedidosHoje = pedidos.filter(p =>
     new Date(p.criado_em) >= inicioDeDiaHoje && p.status !== 'cancelado'
   ).length
+
+  /* Permissão de criar pedido manual (atendente+) */
+  const podeNovoManual = !roleLoading && hasRole('atendente')
 
   /* ── Estados de carregamento / erro ──────────────── */
 
@@ -899,48 +946,77 @@ export default function PainelPedidos() {
   return (
     <div className="flex flex-col">
 
-      {/* Toolbar: ações + filtro de data */}
-      <div className="px-4 py-2 flex flex-wrap items-center gap-3 border-b border-line bg-surface">
+      {/* Toolbar: ações + filtros */}
+      <div className="px-4 py-2 border-b border-line bg-surface space-y-2">
 
-        {/* Chips de filtro de data */}
-        <div className="flex items-center gap-1.5 flex-1 min-w-0">
-          {CHIPS_FILTRO.map(c => (
-            <Chip
-              key={c.value}
-              selected={filtroData === c.value}
-              variant="solid"
-              onClick={() => setFiltroData(c.value)}
-            >
-              {c.label}
-            </Chip>
-          ))}
+        {/* Linha 1: filtro de data + contador + som + refresh */}
+        <div className="flex flex-wrap items-center gap-3">
+
+          {/* Chips de filtro de data */}
+          <div className="flex items-center gap-1.5 flex-1 min-w-0">
+            {CHIPS_FILTRO.map(c => (
+              <Chip
+                key={c.value}
+                selected={filtroData === c.value}
+                variant="solid"
+                onClick={() => setFiltroData(c.value)}
+              >
+                {c.label}
+              </Chip>
+            ))}
+          </div>
+
+          {/* Contador de hoje */}
+          <span className="text-sm font-medium text-ink-soft shrink-0">
+            <span className="font-bold text-ink">{pedidosHoje}</span>{' '}
+            {pedidosHoje === 1 ? 'pedido hoje' : 'pedidos hoje'}
+          </span>
+
+          {/* Som + refresh */}
+          <div className="flex items-center gap-1 shrink-0">
+            {somAtivo ? (
+              <div aria-label="Som de pedidos ativo" className="w-10 h-10 flex items-center justify-center">
+                <Volume2 size={18} strokeWidth={1.75} className="text-brand-500" />
+              </div>
+            ) : (
+              <IconButton onClick={handleAtivarSom} aria-label="Ativar som de pedidos">
+                <VolumeX size={18} strokeWidth={1.75} className="text-ink-mute" />
+              </IconButton>
+            )}
+            <IconButton onClick={handleAtualizar} disabled={atualizando} aria-label="Atualizar pedidos">
+              <RefreshCw
+                size={18}
+                strokeWidth={1.75}
+                className={`text-ink ${atualizando ? 'animate-spin' : ''}`}
+              />
+            </IconButton>
+          </div>
         </div>
 
-        {/* Contador de hoje */}
-        <span className="text-sm font-medium text-ink-soft shrink-0">
-          <span className="font-bold text-ink">{pedidosHoje}</span>{' '}
-          {pedidosHoje === 1 ? 'pedido hoje' : 'pedidos hoje'}
-        </span>
+        {/* Linha 2: filtro de origem + botão novo pedido */}
+        <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex items-center gap-1.5 flex-1 min-w-0">
+            {CHIPS_ORIGEM.map(c => (
+              <Chip
+                key={c.value}
+                selected={filtroOrigem === c.value}
+                variant="solid"
+                onClick={() => setFiltroOrigem(c.value)}
+              >
+                {c.label}
+              </Chip>
+            ))}
+          </div>
 
-        {/* Botões vol + refresh */}
-        <div className="flex items-center gap-1 shrink-0">
-          {somAtivo ? (
-            <div aria-label="Som de pedidos ativo" className="w-10 h-10 flex items-center justify-center">
-              <Volume2 size={18} strokeWidth={1.75} className="text-brand-500" />
-            </div>
-          ) : (
-            <IconButton onClick={handleAtivarSom} aria-label="Ativar som de pedidos">
-              <VolumeX size={18} strokeWidth={1.75} className="text-ink-mute" />
-            </IconButton>
+          {podeNovoManual && (
+            <Button
+              onClick={() => setModalAberto(true)}
+              className="!min-h-[36px] text-sm px-3 shrink-0"
+            >
+              <Plus size={15} strokeWidth={2} />
+              Novo pedido manual
+            </Button>
           )}
-
-          <IconButton onClick={handleAtualizar} disabled={atualizando} aria-label="Atualizar pedidos">
-            <RefreshCw
-              size={18}
-              strokeWidth={1.75}
-              className={`text-ink ${atualizando ? 'animate-spin' : ''}`}
-            />
-          </IconButton>
         </div>
       </div>
 
@@ -976,7 +1052,7 @@ export default function PainelPedidos() {
                 status={col.status}
                 titulo={col.titulo}
                 corDot={col.corDot}
-                pedidos={pedidos.filter(p => p.status === col.status)}
+                pedidos={pedidosVisiveis.filter(p => p.status === col.status)}
                 expandido={expandido}
                 itensPorPedido={itensPorPedido}
                 loadingItens={loadingItens}
@@ -1015,6 +1091,14 @@ export default function PainelPedidos() {
           labelConfirmar="Cancelar pedido"
           onConfirmar={handleConfirmarCancelar}
           onCancelar={() => setConfirmCancelar(null)}
+        />
+      )}
+
+      {modalAberto && lojaId && (
+        <ModalPedidoManual
+          lojaId={lojaId}
+          onFechar={() => setModalAberto(false)}
+          onCriado={() => lojaId && carregarPedidos(lojaId, filtroDataRef.current)}
         />
       )}
     </div>

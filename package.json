@@ -6,7 +6,8 @@
     "dev": "cross-env NODE_OPTIONS=--max-old-space-size=4096 next dev",
     "build": "cross-env NODE_OPTIONS=--max-old-space-size=4096 next build",
     "start": "next start",
-    "email": "email dev --dir ./lib/email-templates --port 3030"
+    "email": "email dev --dir ./lib/email-templates --port 3030",
+    "test:rls": "cd supabase/tests/rls && npm test"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
