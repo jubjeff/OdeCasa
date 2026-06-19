@@ -124,13 +124,13 @@ function TabPerfil({
   }
 
   async function alterarSenha() {
-    if (novaSenha.length < 6) { toast.error('A senha deve ter pelo menos 6 caracteres'); return }
-    if (novaSenha !== confirmSenha) { toast.error('As senhas não conferem'); return }
+    if (novaSenha.length < 6) { toast.error('A nova senha deve ter no mínimo 6 caracteres.'); return }
+    if (novaSenha !== confirmSenha) { toast.error('As senhas não coincidem. Verifique e tente novamente.'); return }
     setSalvandoSenha(true)
     const { error } = await supabase.auth.updateUser({ password: novaSenha })
     setSalvandoSenha(false)
-    if (error) { toast.error('Erro: ' + error.message); return }
-    toast.success('Senha alterada com sucesso')
+    if (error) { toast.error('Não foi possível alterar a senha. Tente novamente.'); return }
+    toast.success('Senha alterada com sucesso.')
     setShowSenha(false)
     setNovaSenha('')
     setConfirmSenha('')
@@ -644,7 +644,7 @@ function TabOperadores({ lojaId, donoId }: { lojaId: string; donoId: string }) {
 
   async function handleGerar() {
     const email = formEmail.trim().toLowerCase()
-    if (!email || !email.includes('@')) { setErroConvite('Informe um e-mail válido'); return }
+    if (!email || !email.includes('@')) { setErroConvite('Informe um endereço de e-mail válido.'); return }
     setGerando(true)
     setErroConvite(null)
 
@@ -658,7 +658,7 @@ function TabOperadores({ lojaId, donoId }: { lojaId: string; donoId: string }) {
     if (existente) {
       const op = existente as { id: string; status: string }
       if (op.status === 'ativo') {
-        setErroConvite('Este e-mail já é operador desta loja.')
+        setErroConvite('Este e-mail já faz parte da equipe desta loja.')
         setGerando(false)
         return
       }
@@ -668,7 +668,7 @@ function TabOperadores({ lojaId, donoId }: { lojaId: string; donoId: string }) {
     }
 
     const url = await gerarLink(email, formPapel)
-    if (!url) { setErroConvite('Erro ao gerar convite.'); setGerando(false); return }
+    if (!url) { setErroConvite('Não foi possível gerar o convite. Tente novamente.'); setGerando(false); return }
     setLinkGerado(url)
     await carregar()
     setGerando(false)
@@ -680,7 +680,7 @@ function TabOperadores({ lojaId, donoId }: { lojaId: string; donoId: string }) {
     const { data: op } = await supabase
       .from('operadores').select('id').eq('loja_id', lojaId).eq('email', email).maybeSingle()
     const url = await gerarLink(email, formPapel, (op as { id: string } | null)?.id)
-    if (!url) { setErroConvite('Erro ao reenviar.'); setGerando(false); return }
+    if (!url) { setErroConvite('Não foi possível reenviar o convite. Tente novamente.'); setGerando(false); return }
     setLinkGerado(url)
     setModoReenvio(false)
     await carregar()
@@ -689,7 +689,7 @@ function TabOperadores({ lojaId, donoId }: { lojaId: string; donoId: string }) {
 
   async function copiarLinkNovamente(op: Operador) {
     const url = await gerarLink(op.email, op.papel, op.id)
-    if (!url) { toast.error('Erro ao gerar novo link.'); return }
+    if (!url) { toast.error('Não foi possível gerar um novo link. Tente novamente.'); return }
     navigator.clipboard.writeText(url)
     toast.success('Novo link copiado! Expira em 48h.')
     await carregar()
@@ -700,8 +700,8 @@ function TabOperadores({ lojaId, donoId }: { lojaId: string; donoId: string }) {
     const { error } = await supabase
       .from('operadores').update({ status: 'inativo' }).eq('id', revogarId)
     setRevogarId(null)
-    if (error) { toast.error('Erro ao revogar acesso.'); return }
-    toast.success('Acesso revogado.')
+    if (error) { toast.error('Não foi possível revogar o acesso. Tente novamente.'); return }
+    toast.success('Acesso revogado com sucesso.')
     await carregar()
   }
 

@@ -4,6 +4,7 @@ import { useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
+import { traduzirErroAuth } from '@/lib/auth-errors'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Card } from '@/components/ui/Card'
@@ -26,7 +27,7 @@ export default function Login() {
     })
 
     if (error) {
-      setErro(error.message)
+      setErro(traduzirErroAuth(error.message))
       setCarregando(false)
     } else {
       router.push('/painel')

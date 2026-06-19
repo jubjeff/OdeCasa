@@ -129,6 +129,29 @@ body {
   animation: pulse-ring-accent 1.8s ease-out infinite;
 }
 
+/* ── Pedidos kanban ────────────────────────────────── */
+@keyframes card-entry {
+  from { opacity: 0; transform: translateY(-8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes border-pulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.25; }
+}
+@keyframes sheet-in {
+  from { transform: translateX(100%); opacity: 0; }
+  to   { transform: translateX(0);    opacity: 1; }
+}
+@utility animate-card-entry {
+  animation: card-entry 0.25s ease-out both;
+}
+@utility animate-border-pulse {
+  animation: border-pulse 0.7s ease-in-out 4;
+}
+@utility animate-sheet-in {
+  animation: sheet-in 0.2s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
 /* ── Sonner toasts ─────────────────────────────────── */
 [data-sonner-toaster] {
   --border-radius:   12px;

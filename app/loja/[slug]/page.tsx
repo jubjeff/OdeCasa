@@ -1074,22 +1074,22 @@ function TelaCheckout({
       : enderecoNovo
 
     const novosErros: typeof erros = {}
-    if (!form.nome.trim()) novosErros.nome = 'Informe seu nome'
-    if (!form.telefone.trim()) novosErros.telefone = 'Informe seu WhatsApp ou telefone'
-    else if (form.telefone.replace(/\D/g, '').length < 10) novosErros.telefone = 'Número incompleto'
+    if (!form.nome.trim()) novosErros.nome = 'Informe seu nome completo.'
+    if (!form.telefone.trim()) novosErros.telefone = 'Informe seu número de WhatsApp.'
+    else if (form.telefone.replace(/\D/g, '').length < 10) novosErros.telefone = 'Número de telefone incompleto. Inclua o DDD.'
     if (!usandoSalvo) {
-      if (!form.cep.replace(/\D/g, '').length) novosErros.cep = 'Informe o CEP'
-      else if (form.cep.replace(/\D/g, '').length !== 8) novosErros.cep = 'CEP inválido'
-      if (!form.rua.trim()) novosErros.rua = 'Informe a rua'
-      if (!form.numero.trim()) novosErros.numero = 'Informe o número'
-      else if (!/^\d+[A-Za-z]?$/.test(form.numero.trim())) novosErros.numero = 'Número inválido'
-      if (!form.bairro.trim()) novosErros.bairro = 'Informe o bairro'
+      if (!form.cep.replace(/\D/g, '').length) novosErros.cep = 'Informe o CEP do endereço de entrega.'
+      else if (form.cep.replace(/\D/g, '').length !== 8) novosErros.cep = 'CEP inválido — deve ter 8 dígitos.'
+      if (!form.rua.trim()) novosErros.rua = 'Informe o nome da rua ou avenida.'
+      if (!form.numero.trim()) novosErros.numero = 'Informe o número do imóvel.'
+      else if (!/^\d+[A-Za-z]?$/.test(form.numero.trim())) novosErros.numero = 'Número do imóvel inválido.'
+      if (!form.bairro.trim()) novosErros.bairro = 'Informe o bairro.'
     }
 
     if (form.forma_pagamento === 'dinheiro' && form.troco_para.trim()) {
       const troco = parseFloat(form.troco_para.replace(',', '.'))
       if (isNaN(troco) || troco < total) {
-        novosErros.troco_para = `O valor deve ser maior ou igual ao total (${formatarReal(total)})`
+        novosErros.troco_para = `O valor do troco deve ser maior ou igual ao total do pedido (${formatarReal(total)}).`
       }
     }
 
@@ -1143,6 +1143,24 @@ function TelaCheckout({
         body: JSON.stringify({ loja_id: loja.id, evento: 'pedido.criado', pedido_id: pedidoId }),
       }).catch(() => {})
 
+      if (cliente?.email) {
+        fetch('/api/email/send', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            tipo:           'confirmacao',
+            email:          cliente.email,
+            nome_cliente:   form.nome.trim(),
+            nome_loja:      loja.nome,
+            pedido_id_curto: pedidoId.slice(0, 8).toUpperCase(),
+            itens:          carrinho.map(i => ({ nome: i.nome, quantidade: i.quantidade, subtotal: +(i.preco * i.quantidade).toFixed(2) })),
+            taxa_entrega:   taxaEntrega,
+            total:          +total.toFixed(2),
+            whatsapp:       loja.whatsapp ?? undefined,
+          }),
+        }).catch(() => {})
+      }
+
       // Cliente logado optou por salvar o endereço novo digitado
       if (cliente && !usandoSalvo && salvarEndereco && form.rua.trim()) {
         const enderecoBase = `${form.rua.trim()}, ${form.numero.trim()} — ${form.bairro.trim()}, ${form.cidade.trim()} — CEP ${form.cep.trim()}`
@@ -1170,7 +1188,7 @@ function TelaCheckout({
       })
     } catch (err) {
       console.error('[OdeCasa] Erro ao finalizar pedido:', err)
-      setErros(e => ({ ...e, geral: 'Não foi possível enviar o pedido. Tente novamente.' }))
+      setErros(e => ({ ...e, geral: 'Não foi possível enviar seu pedido. Verifique sua conexão e tente novamente.' }))
     } finally {
       setEnviando(false)
     }

@@ -4,6 +4,7 @@ import { useEffect } from 'react'
 import { Button } from './Button'
 
 interface ConfirmDialogProps {
+  titulo?: string
   mensagem: string
   labelConfirmar?: string
   labelCancelar?: string
@@ -12,6 +13,7 @@ interface ConfirmDialogProps {
 }
 
 export function ConfirmDialog({
+  titulo,
   mensagem,
   labelConfirmar = 'Excluir',
   labelCancelar = 'Cancelar',
@@ -41,7 +43,8 @@ export function ConfirmDialog({
 
       {/* Card do diálogo */}
       <div className="animate-modal-in relative bg-surface rounded-xl shadow-lg w-full max-w-sm p-6 flex flex-col gap-5">
-        <p className="text-base text-ink leading-relaxed">{mensagem}</p>
+        {titulo && <p className="text-base font-semibold text-ink">{titulo}</p>}
+        <p className={`leading-relaxed ${titulo ? 'text-sm text-ink-soft -mt-3' : 'text-base text-ink'}`}>{mensagem}</p>
 
         <div className="flex gap-3 justify-end">
           <Button variant="secondary" onClick={onCancelar}>
