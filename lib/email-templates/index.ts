@@ -20,5 +20,6 @@ export {
   type StatusNotificavel,
 } from './order-status'
 export { PasswordResetEmail, type PasswordResetEmailProps } from './password-reset'
+export { ConfirmacaoContaEmail, type ConfirmacaoContaEmailProps } from './confirmacao-conta'
 
 export { cores, fontePadrao, marca, formatarReal } from './theme'

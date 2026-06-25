@@ -183,9 +183,10 @@ function LojaForm({ userId, loja, onSalvo, onCancelar }: LojaFormProps) {
       raio_maximo_km: form.raio_maximo_km ? parseFloat(form.raio_maximo_km) : null,
     }
 
-    const { error } = loja
-      ? await supabase.from('lojas').update(payload).eq('id', loja.id)
-      : await supabase.from('lojas').insert({ ...payload, dono_id: userId, ativo: true })
+    const isNovaLoja = !loja
+    const { error } = isNovaLoja
+      ? await supabase.from('lojas').insert({ ...payload, dono_id: userId, ativo: true })
+      : await supabase.from('lojas').update(payload).eq('id', loja.id)
 
     if (error) {
       setFeedback({
@@ -209,6 +210,24 @@ function LojaForm({ userId, loja, onSalvo, onCancelar }: LojaFormProps) {
 
     if (data) {
       onSalvo(data as Loja)
+
+      if (isNovaLoja) {
+        const { data: userData } = await supabase.auth.getUser()
+        const emailDono = userData?.user?.email
+        const nomeDono = userData?.user?.user_metadata?.nome ?? 'Lojista'
+        if (emailDono) {
+          fetch('/api/email/send', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              tipo:      'boas_vindas',
+              email:     emailDono,
+              nome_dono: nomeDono,
+              nome_loja: payload.nome,
+            }),
+          }).catch(() => {})
+        }
+      }
     } else {
       setFeedback({ tipo: 'erro', texto: 'Erro ao carregar os dados salvos.' })
     }
