@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
+import { traduzirErroAuth } from '@/lib/auth-errors'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Card } from '@/components/ui/Card'
@@ -32,7 +33,7 @@ export default function Cadastro() {
     })
 
     if (error) {
-      setMensagem({ tipo: 'erro', texto: error.message })
+      setMensagem({ tipo: 'erro', texto: traduzirErroAuth(error.message) })
     } else {
       setMensagem({
         tipo: 'sucesso',
